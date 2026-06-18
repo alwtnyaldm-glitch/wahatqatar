@@ -444,6 +444,172 @@ body {
   border-color: rgba(99, 102, 241, 0.5);
 }
 
+/* NEW badge for recent submissions */
+.visitor-card-new.is-new {
+  border: 2px solid var(--primary);
+  animation: pulse-new 2s ease-in-out infinite;
+}
+
+@keyframes pulse-new {
+  0%, 100% { box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25); }
+  50% { box-shadow: 0 4px 24px rgba(99, 102, 241, 0.5); }
+}
+
+.new-badge {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  animation: badge-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Time indicator */
+.time-indicator {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 3px 8px;
+  border-radius: 10px;
+}
+
+/* Attempt count badge */
+.attempt-count {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  margin-right: 6px;
+}
+
+/* History toggle */
+.history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(99, 102, 241, 0.1);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.history-toggle:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.history-icon {
+  font-size: 14px;
+}
+
+.history-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--primary-light);
+}
+
+.history-arrow {
+  font-size: 10px;
+  color: var(--primary-light);
+  transition: transform 0.2s ease;
+}
+
+/* Submission history container */
+.submission-history {
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border-color);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.history-content {
+  padding: 8px;
+}
+
+.history-section {
+  margin-bottom: 12px;
+}
+
+.history-section:last-child {
+  margin-bottom: 0;
+}
+
+.history-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.history-item {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.history-item:last-child {
+  margin-bottom: 0;
+}
+
+.history-item.latest {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.history-item.previous {
+  opacity: 0.7;
+}
+
+.history-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.history-item-number {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary-light);
+}
+
+.history-item-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.history-data-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.history-data-item {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.history-data-item .label {
+  color: var(--text-muted);
+}
+
+/* Last activity footer */
+.card-footer .last-activity {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 4px 0;
+  text-align: center;
+}
+
 /* Card Header */
 .card-header-new {
   padding: 14px 18px;

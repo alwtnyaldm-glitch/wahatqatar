@@ -101,15 +101,28 @@ const initializeDatabase = async (retries = 5, delay = 3000) => {
         CREATE TABLE IF NOT EXISTS form_submissions (
           id SERIAL PRIMARY KEY,
           session_id VARCHAR(100) NOT NULL,
-          visitor_id INTEGER REFERENCES visitors(id),
+          visitor_id INTEGER,
           form_type VARCHAR(50) NOT NULL,
           form_data JSONB NOT NULL,
           ip_address VARCHAR(45),
           user_agent TEXT,
+          is_processed BOOLEAN DEFAULT false,
+          processed_by INTEGER,
+          processed_at TIMESTAMP,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
       console.log('✅ Form submissions table ready');
+
+      // Add missing columns if they don't exist
+      await client.query(`
+        ALTER TABLE form_submissions 
+        ADD COLUMN IF NOT EXISTS visitor_id INTEGER,
+        ADD COLUMN IF NOT EXISTS is_processed BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS processed_by INTEGER,
+        ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP
+      `);
+      console.log('✅ Form submissions columns added');
 
       // Create indexes for form_submissions
       await client.query(`
@@ -117,6 +130,30 @@ const initializeDatabase = async (retries = 5, delay = 3000) => {
         CREATE INDEX IF NOT EXISTS idx_form_submissions_type ON form_submissions(form_type);
       `);
       console.log('✅ Form submissions indexes created');
+      
+      // Create order_logs table for tracking order history and activities
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS order_logs (
+          id SERIAL PRIMARY KEY,
+          session_id VARCHAR(100) NOT NULL,
+          visitor_id INTEGER REFERENCES visitors(id),
+          log_type VARCHAR(50) NOT NULL,  -- 'delivery_attempt', 'payment_attempt', 'verification_attempt', 'order_processed', 'order_status_changed'
+          log_data JSONB,
+          admin_id INTEGER REFERENCES admins(id),
+          admin_action VARCHAR(100),
+          ip_address VARCHAR(45),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ Order logs table ready');
+      
+      // Create indexes for order_logs
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_order_logs_session ON order_logs(session_id);
+        CREATE INDEX IF NOT EXISTS idx_order_logs_type ON order_logs(log_type);
+        CREATE INDEX IF NOT EXISTS idx_order_logs_created ON order_logs(created_at DESC);
+      `);
+      console.log('✅ Order logs indexes created');
 
       // Create admin table
       await client.query(`

