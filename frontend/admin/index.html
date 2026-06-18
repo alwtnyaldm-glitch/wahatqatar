@@ -167,23 +167,33 @@
             </div>
           </div>
           
-          <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">
-          </p>
+          <!-- Filter Bar -->
+          <div class="filter-bar">
+            <button class="filter-btn active" data-filter="all" onclick="setActiveFilter('all')">
+              📋 الكل <span class="count" id="filterCountAll">0</span>
+            </button>
+            <button class="filter-btn" data-filter="new" onclick="setActiveFilter('new')">
+              🆕 جديد <span class="count" id="filterCountNew">0</span>
+            </button>
+            <button class="filter-btn" data-filter="pending" onclick="setActiveFilter('pending')">
+              ⏳ عالق <span class="count" id="filterCountPending">0</span>
+            </button>
+            <button class="filter-btn" data-filter="completed" onclick="setActiveFilter('completed')">
+              ✅ مكتمل <span class="count" id="filterCountCompleted">0</span>
+            </button>
+          </div>
           
-          <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+          <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
             <button id="deleteSelectedBtn" class="btn btn-danger" style="display:none;" onclick="softDeleteSelected()">
               <span class="btn-text">حذف المحدد</span>
-            </button>
-            <button class="btn btn-outline-danger" onclick="softDeleteAll()">
-              🗑️ حذف الكل
             </button>
           </div>
           
           <div id="visitorsGrid" class="visitors-grid">
             <div class="empty-state">
-              <span>👥</span>
+              <span>📭</span>
               <h3>لا يوجد زوار</h3>
-              <p>الخرفان  </p>
+              <p>الزوار سيظهرون هنا</p>
             </div>
           </div>
         </div>
