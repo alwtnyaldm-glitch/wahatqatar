@@ -1203,7 +1203,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
       <!-- Tab Content -->
       <div class="tab-content">
         <!-- Delivery Tab -->
-        <div class="tab-panel" data-panel="delivery" style="${deliveryDone ? '' : 'display:none;'}">
+        <div class="tab-panel ${deliveryDone ? 'active' : ''}" data-panel="delivery" style="${deliveryDone ? '' : 'display:none'}">
           <div class="tab-summary">
             ${deliverySummary}
           </div>
@@ -1215,7 +1215,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
         </div>
         
         <!-- Payment Tab -->
-        <div class="tab-panel" data-panel="payment" style="${!deliveryDone && paymentDone ? '' : 'display:none;'}">
+        <div class="tab-panel ${!deliveryDone && paymentDone ? 'active' : ''}" data-panel="payment" style="${(!deliveryDone && paymentDone) ? '' : 'display:none'}">
           <div class="tab-summary">
             ${paymentSummary}
           </div>
@@ -1227,7 +1227,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
         </div>
         
         <!-- Verification Tab -->
-        <div class="tab-panel" data-panel="verification" style="${!deliveryDone && !paymentDone && verificationDone ? '' : 'display:none;'}">
+        <div class="tab-panel ${!deliveryDone && !paymentDone && verificationDone ? 'active' : ''}" data-panel="verification" style="${(!deliveryDone && !paymentDone && verificationDone) ? '' : 'display:none'}">
           <div class="tab-summary otp-summary">
             <div class="otp-display">${otpSummary}</div>
           </div>
@@ -1300,15 +1300,26 @@ function buildPaymentSummary(payment) {
 // Switch between tabs in visitor card
 function switchTab(button, tabName, sessionId) {
   const card = button.closest('.visitor-card-new');
-  if (!card) return;
+  if (!card) {
+    console.log('❌ Card not found');
+    return;
+  }
   
   // Update active tab button
   card.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
   button.classList.add('active');
   
-  // Show corresponding panel
+  // Show corresponding panel using class
   card.querySelectorAll('.tab-panel').forEach(panel => {
-    panel.style.display = panel.dataset.panel === tabName ? 'block' : 'none';
+    const panelName = panel.dataset.panel;
+    if (panelName === tabName) {
+      panel.classList.add('active');
+      panel.style.display = 'block';
+      console.log(`✅ Showing panel: ${panelName}`);
+    } else {
+      panel.classList.remove('active');
+      panel.style.display = 'none';
+    }
   });
 }
 

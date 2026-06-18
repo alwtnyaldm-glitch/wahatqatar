@@ -283,8 +283,9 @@ body {
 .tab:hover { color: var(--text-primary); }
 .tab.active { color: var(--primary-light); border-bottom-color: var(--primary); }
 
-.tab-content { display: none; }
-.tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+/* Old tracking page tabs - kept for compatibility */
+/* .tab-content { display: none; } */
+/* .tab-content.active { display: block; animation: fadeIn 0.3s ease; } */
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
@@ -697,10 +698,16 @@ body {
 /* Tab Content */
 .tab-content {
   padding: 12px;
+  display: block !important;
 }
 
 .tab-panel {
+  display: none;
   animation: fadeIn 0.2s ease;
+}
+
+.tab-panel.active {
+  display: block !important;
 }
 
 @keyframes fadeIn {
