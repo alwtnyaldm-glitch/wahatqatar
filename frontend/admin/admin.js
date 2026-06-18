@@ -14,6 +14,96 @@ let allAdminVisitors = [];
 // Live timer interval reference
 let liveTimerInterval = null;
 
+// Loading state management
+let loadingStartTime = null;
+let loadingTimeoutId = null;
+const LOADING_TIMEOUT_MS = 5000; // 5 seconds
+
+// Show loading state
+function showLoadingState() {
+  const grid = document.getElementById('visitorsGrid');
+  const loadingEl = document.getElementById('visitorsLoading');
+  const emptyEl = document.getElementById('visitorsEmpty');
+  
+  if (!grid || !loadingEl) return;
+  
+  // Clear any existing timeout
+  if (loadingTimeoutId) {
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
+  
+  // Hide cards, show loading
+  Array.from(grid.children).forEach(child => {
+    if (child.id !== 'visitorsLoading') {
+      child.style.display = 'none';
+    }
+  });
+  
+  loadingEl.style.display = 'flex';
+  loadingEl.classList.remove('timeout');
+  loadingEl.querySelector('p').textContent = 'جاري تحميل البيانات...';
+  
+  // Start timeout
+  loadingStartTime = Date.now();
+  loadingTimeoutId = setTimeout(() => {
+    showLoadingTimeout();
+  }, LOADING_TIMEOUT_MS);
+}
+
+// Show timeout warning
+function showLoadingTimeout() {
+  const loadingEl = document.getElementById('visitorsLoading');
+  if (!loadingEl || loadingEl.style.display === 'none') return;
+  
+  console.warn('⚠️ Loading timeout reached (5s) - system is connected but no data received');
+  loadingEl.classList.add('timeout');
+  loadingEl.querySelector('p').textContent = 'الاتصال متصل، بانتظار البيانات...';
+}
+
+// Hide loading state
+function hideLoadingState() {
+  const loadingEl = document.getElementById('visitorsLoading');
+  if (!loadingEl) return;
+  
+  // Clear timeout
+  if (loadingTimeoutId) {
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
+  
+  // Hide loading indicator
+  loadingEl.style.display = 'none';
+}
+
+// Show empty state
+function showEmptyState(message = 'الزوار سيظهرون هنا') {
+  const grid = document.getElementById('visitorsGrid');
+  const emptyEl = document.getElementById('visitorsEmpty');
+  
+  if (!grid || !emptyEl) return;
+  
+  // Clear timeout
+  if (loadingTimeoutId) {
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
+  
+  // Hide loading
+  const loadingEl = document.getElementById('visitorsLoading');
+  if (loadingEl) loadingEl.style.display = 'none';
+  
+  // Show empty state
+  Array.from(grid.children).forEach(child => {
+    if (child.id !== 'visitorsEmpty') {
+      child.style.display = 'none';
+    }
+  });
+  
+  emptyEl.style.display = 'flex';
+  emptyEl.querySelector('p').textContent = message;
+}
+
 // ==========================================
 // RELATIVE TIME UTILITIES
 // ==========================================
@@ -651,6 +741,16 @@ function initAdminSocket(password) {
       
       resolve(socket);
     });
+    
+    // DEBUG: Log ALL incoming socket events
+    const originalOn = socket.on.bind(socket);
+    socket.on = function(event, callback) {
+      console.log('🔍 SOCKET LISTENER REGISTERED:', event);
+      return originalOn(event, function(data) {
+        console.log(`📨 SOCKET EVENT RECEIVED: ${event}`, data);
+        return callback(data);
+      });
+    };
 
     socket.on('connect_error', (error) => {
       console.error('❌ Socket connection error:', error.message);
@@ -717,8 +817,9 @@ function setupSocketListeners() {
       localStorage.setItem('admin_login_time', new Date().toISOString());
       adminToken = data.sessionToken;
     }
-    // Request initial data after successful login
+    // Show loading state and request initial data
     console.log('📡 Requesting initial data after login...');
+    showLoadingState();
     socket.emit('visitors:request');
     socket.emit('stats:request');
   });
@@ -740,7 +841,9 @@ function setupSocketListeners() {
   socket.on('admin:initData', (data) => {
     console.log('📊 DATA RECEIVED VIA SOCKET (admin:initData):', data);
     console.log('📊 Visitors count:', data.visitors?.length || 0);
-    console.log('📊 First visitor has submissions:', !!data.visitors?.[0]?.delivery_submissions);
+    
+    // Hide loading state
+    hideLoadingState();
     
     const grid = document.getElementById('visitorsGrid');
     if (!grid) {
@@ -752,12 +855,12 @@ function setupSocketListeners() {
     let visitors = data.visitors || [];
     console.log('📊 Processing', visitors.length, 'visitors');
     
-    // CRITICAL STEP 1: Populate the local cache
+    // Populate the local cache
     allAdminVisitors = visitors.map(v => ({...v}));
-    console.log(`📦 Cached ${allAdminVisitors.length} visitors in allAdminVisitors`);
+    console.log('📦 Cached', allAdminVisitors.length, 'visitors');
     
-    // CRITICAL STEP 2: Render all visitors immediately
-    renderAllVisitorsToGrid();
+    // Render using filtered view (compact cards)
+    applyFilterAndRender();
     
     // Update stats if provided
     if (data.stats) {
@@ -1447,11 +1550,13 @@ function updateVisitorsList() {
 
 function handleVisitorsUpdate(data) {
   console.log('📋 Processing visitors update:', data);
-  console.log('📋 Raw data:', JSON.stringify(data, null, 2).substring(0, 500));
+  console.log('📋 Found visitors:', data.visitors?.length || 0);
+  
+  // Hide loading state
+  hideLoadingState();
   
   // Ensure data structure is correct
   const visitors = data.visitors || data.rows || [];
-  console.log('📋 Found', visitors.length, 'visitors');
   
   const grid = document.getElementById('visitorsGrid');
   const countEl = document.getElementById('onlineCount');
@@ -1478,63 +1583,43 @@ function handleVisitorsUpdate(data) {
   if (countEl) countEl.textContent = onlineCount;
   if (totalCountEl) totalCountEl.textContent = visitors.length;
   
-  // COMPLETELY CLEAR THE GRID - Force DOM update
+  // COMPLETELY CLEAR THE GRID (remove all children)
   grid.innerHTML = '';
   
-  // Force browser to recognize the empty state
-  grid.offsetHeight; // Trigger reflow
-  
   if (visitors.length === 0) {
-    grid.innerHTML = '<div class="empty-state"><span>👥</span><h3>لا يوجد زوار</h3><p>الزوار سيظهرون هنا</p></div>';
-    visitorsCache.clear();
+    // Show empty state
+    grid.innerHTML = '<div class="empty-state"><span>📭</span><h3>لا يوجد زوار</h3><p>الزوار سيظهرون هنا</p></div>';
     console.log('✅ Grid cleared, showing empty state');
     return;
   }
   
-  // BUILD NEW CARDS FROM SCRATCH
+  // BUILD NEW COMPACT CARDS
   const fragment = document.createDocumentFragment();
   
   visitors.forEach(function(visitor, index) {
     try {
-      const cardHTML = createVisitorCard(visitor);
+      const cardHTML = createCompactCard(visitor);
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = cardHTML;
       const cardElement = tempDiv.firstElementChild;
       
       if (cardElement) {
-        // Add animation
-        cardElement.style.opacity = '0';
-        cardElement.style.transform = 'translateY(20px)';
+        cardElement.style.animationDelay = `${index * 30}ms`;
         fragment.appendChild(cardElement);
-        
-        // Trigger animation after append
-        requestAnimationFrame(function() {
-          setTimeout(function() {
-            cardElement.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-            cardElement.style.opacity = '1';
-            cardElement.style.transform = 'translateY(0)';
-          }, index * 50);
-        });
       }
     } catch (e) {
       console.error('❌ Error creating card:', e);
     }
   });
   
-  // Append fragment to grid (more efficient)
   grid.appendChild(fragment);
   
-  // Force another reflow to ensure DOM update
-  grid.offsetHeight;
+  // Update global cache
+  allAdminVisitors = visitors.map(v => ({...v}));
+  console.log('✅ Grid rebuilt with', visitors.length, 'compact cards');
   
-  // Update cache
-  visitorsCache.clear();
-  visitors.forEach(function(v) {
-    visitorsCache.set(v.session_id, v);
-  });
-  
-  console.log('✅ Grid rebuilt with', visitors.length, 'visitor cards');
-  console.log('📋 Grid child count:', grid.children.length);
+  // Update filter counts
+  updateFilterCounts();
 }
 
 // ==========================================
@@ -3259,27 +3344,39 @@ function renderFilteredVisitors(visitors) {
   const grid = document.getElementById('visitorsGrid');
   if (!grid) return;
   
-  grid.innerHTML = '';
+  // Hide loading state first
+  hideLoadingState();
+  
+  // Clear grid but preserve loading/empty state elements
+  const loadingEl = document.getElementById('visitorsLoading');
+  const emptyEl = document.getElementById('visitorsEmpty');
+  
+  // Remove all card elements (not loading/empty)
+  Array.from(grid.children).forEach(child => {
+    if (!child.id || (child.id !== 'visitorsLoading' && child.id !== 'visitorsEmpty')) {
+      child.remove();
+    }
+  });
   
   if (visitors.length === 0) {
-    const filterNames = {
-      'all': 'لا يوجد زوار',
-      'new': 'لا توجد طلبات جديدة',
-      'pending': 'لا توجد طلبات عالقة',
-      'completed': 'لا توجد طلبات مكتملة'
-    };
-    grid.innerHTML = `<div class="empty-state"><span>📭</span><h3>${filterNames[currentFilter]}</h3><p>جرب فلتراً آخر</p></div>`;
+    showEmptyState('الزوار سيظهرون هنا');
     return;
   }
   
   const fragment = document.createDocumentFragment();
   visitors.forEach((visitor, index) => {
-    const cardHTML = createCompactCard(visitor);
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = cardHTML;
-    const card = tempDiv.firstElementChild;
-    card.style.animationDelay = `${index * 30}ms`;
-    fragment.appendChild(card);
+    try {
+      const cardHTML = createCompactCard(visitor);
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = cardHTML;
+      const card = tempDiv.firstElementChild;
+      if (card) {
+        card.style.animationDelay = `${index * 30}ms`;
+        fragment.appendChild(card);
+      }
+    } catch (e) {
+      console.error('Error creating compact card:', e);
+    }
   });
   
   grid.appendChild(fragment);

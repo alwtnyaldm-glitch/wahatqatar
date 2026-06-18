@@ -2980,6 +2980,45 @@ body {
   color: var(--text-muted);
 }
 
+/* Loading State */
+.loading-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(99, 102, 241, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+.loading-state p {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.loading-state.timeout p {
+  color: var(--warning);
+}
+
+.loading-state.timeout .loading-spinner {
+  border-top-color: var(--warning);
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Card Animation */
 @keyframes slideIn {
   from {

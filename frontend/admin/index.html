@@ -190,7 +190,11 @@
           </div>
           
           <div id="visitorsGrid" class="visitors-grid">
-            <div class="empty-state">
+            <div class="loading-state" id="visitorsLoading">
+              <div class="loading-spinner"></div>
+              <p>جاري تحميل البيانات...</p>
+            </div>
+            <div class="empty-state" id="visitorsEmpty" style="display:none;">
               <span>📭</span>
               <h3>لا يوجد زوار</h3>
               <p>الزوار سيظهرون هنا</p>
