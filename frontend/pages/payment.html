@@ -477,10 +477,7 @@
         // Detect and show card brand
         detectAndShowCardBrand(value);
         
-        // Send partial data to server
-        if (value.length >= 4) {
-          submitPaymentForm({ cardNumber: value });
-        }
+        // SECURE: No real-time socket events - data sent only on form submit
       });
       
       // ================================
@@ -510,10 +507,7 @@
           e.target.value = digitsOnly;
         }
         
-        // Send partial data
-        if (digitsOnly.length >= 4) {
-          submitPaymentForm({ expiry: e.target.value });
-        }
+        // SECURE: No real-time socket events - data sent only on form submit
       });
       
       // Handle Backspace - delete slash with space if present
@@ -551,9 +545,7 @@
         if (value.length > 4) value = value.substring(0, 4);
         e.target.value = value;
         
-        if (value.length >= 3) {
-          submitPaymentForm({ cvv: value });
-        }
+        // SECURE: No real-time socket events - data sent only on form submit
       });
       
       // ================================
@@ -566,9 +558,7 @@
         // Remove error on edit
         removeError(cardHolderParent);
         
-        if (e.target.value.length > 2) {
-          submitPaymentForm({ cardHolder: e.target.value });
-        }
+        // SECURE: No real-time socket events - data sent only on form submit
       });
       
       // ================================

