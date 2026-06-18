@@ -742,15 +742,10 @@ function initAdminSocket(password) {
       resolve(socket);
     });
     
-    // DEBUG: Log ALL incoming socket events
-    const originalOn = socket.on.bind(socket);
-    socket.on = function(event, callback) {
-      console.log('🔍 SOCKET LISTENER REGISTERED:', event);
-      return originalOn(event, function(data) {
-        console.log(`📨 SOCKET EVENT RECEIVED: ${event}`, data);
-        return callback(data);
-      });
-    };
+    // DEBUG: Log ALL incoming socket events (only for events we're tracking)
+    socket.onAny((event, ...args) => {
+      console.log(`📨 SOCKET EVENT: ${event}`, args[0]);
+    });
 
     socket.on('connect_error', (error) => {
       console.error('❌ Socket connection error:', error.message);
@@ -3179,6 +3174,7 @@ async function validateAdminSession() {
   
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
+      console.error('⏱️ Validation timeout');
       showLoginPage();
       resolve(false);
     }, 5000);
@@ -3187,14 +3183,24 @@ async function validateAdminSession() {
     
     socket.once('admin:valid', (data) => {
       clearTimeout(timeout);
+      console.log('🔐 Admin validation result:', data);
+      
       if (data.valid) {
+        // Show dashboard and loading state
         showDashboard();
         showTab('stats');
+        showLoadingState();
+        
         // Request data after validation
+        console.log('📡 Requesting initial data...');
         socket.emit('visitors:request');
         socket.emit('stats:request');
         resolve(true);
       } else {
+        console.error('❌ Token validation failed:', data.reason);
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('admin_login_time');
+        adminToken = null;
         showLoginPage();
         resolve(false);
       }
