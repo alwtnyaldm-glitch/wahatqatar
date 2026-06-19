@@ -184,6 +184,7 @@
               document.getElementById('dashboard').style.display = 'block';
               localStorage.setItem('admin_token', 'logged_in');
               localStorage.setItem('admin_login_time', new Date().toISOString());
+              console.log('Login success, calling loadVisitorsInline...');
               
               // Load initial data using setTimeout to ensure DOM is ready
               setTimeout(function() {
