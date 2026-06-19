@@ -336,6 +336,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     const data = await response.json();
     
     if (data.success) {
+      // Store session token for socket auth
+      const sessionToken = data.sessionToken || password;
+      localStorage.setItem('admin_token', sessionToken);
+      adminToken = sessionToken;
+      
       // Login successful via API
       showDashboard();
       showToast('مرحباً بك! جاري تحميل البيانات...', 'success');
@@ -344,8 +349,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       loadProducts();
       loadStats();
       
-      // Initialize socket connection
-      await initAdminSocket(password);
+      // Initialize socket connection with session token
+      await initAdminSocket(sessionToken);
       
       // Request initial data via socket
       if (socket) {

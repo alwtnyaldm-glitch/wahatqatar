@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../config/database');
 
 // Admin login
@@ -24,7 +25,23 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
     
-    res.json({ success: true, admin: { id: admin.id, username: admin.username } });
+    // Create session token for socket authentication
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    
+    // Store session in database
+    await pool.query(
+      `INSERT INTO admin_sessions (session_token, device_info, ip_address, is_current, expires_at)
+       VALUES ($1, $2, $3, true, CURRENT_TIMESTAMP + INTERVAL '10 hours')`,
+      [sessionToken, JSON.stringify({ browser: userAgent }), ip]
+    );
+    
+    res.json({ 
+      success: true, 
+      admin: { id: admin.id, username: admin.username },
+      sessionToken: sessionToken
+    });
   } catch (error) {
     console.error('Admin login error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
