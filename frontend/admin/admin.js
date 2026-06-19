@@ -11,6 +11,11 @@ let audioContext = null;
 // CRITICAL: Local cache of all visitors for sync between historical and live data
 let allAdminVisitors = [];
 
+// FLICKER PROTECTION: Track if we have rendered data to prevent blank flash
+let hasRenderedVisitors = false;
+// FLICKER PROTECTION: Cache of existing card elements before update
+let existingCardsCache = new Map();
+
 // Live timer interval reference
 let liveTimerInterval = null;
 
@@ -787,33 +792,64 @@ function renderAllVisitorsToGrid() {
           console.log('❌ Grid not found!');
           return;
      }
-        
+     
+     // FLICKER PROTECTION: If we have NO new data and already have rendered cards, KEEP existing cards
+     if (allAdminVisitors.length === 0 && hasRenderedVisitors) {
+          console.log('🛡️ FLICKER PROTECTION: Keeping existing cards (no new data to show)');
+          return; // Don't clear the grid!
+     }
+     
+     // FLICKER PROTECTION: If we have no data at all, show empty state ONLY if never rendered before
+     if (allAdminVisitors.length === 0) {
+          grid.innerHTML = '<div class="empty-state"><span>👥</span><h3>لا يوجد زوار</h3><p>الزوار سيظهرون هنا</p></div>';
+          console.log('✅ First load: No visitors to display');
+          hasRenderedVisitors = true;
+          return;
+     }
+     
+     // FLICKER PROTECTION: Cache existing cards by session ID BEFORE clearing
+     const existingCards = grid.querySelectorAll('.visitor-card');
+     existingCards.forEach(card => {
+          const sessionId = card.dataset.sessionId || card.querySelector('.session-id')?.textContent;
+          if (sessionId) {
+               existingCardsCache.set(sessionId, card.cloneNode(true));
+          }
+     });
+     
      // COMPLETELY CLEAR THE GRID
      grid.innerHTML = '';
      grid.offsetHeight; // Trigger reflow
-        
-     if (allAdminVisitors.length === 0) {
-          grid.innerHTML = '<div class="empty-state"><span>👥</span><h3>لا يوجد زوار</h3><p>الزوار سيظهرون هنا</p></div>';
-          console.log('✅ No visitors to display');
-          return;
-     }
-        
+     
      // BUILD NEW CARDS FROM SCRATCH
      const fragment = document.createDocumentFragment();
-        
+     
      allAdminVisitors.forEach((visitor, index) => {
           try {
-               const cardHTML = createVisitorCard(visitor);
-               const tempDiv = document.createElement('div');
-               tempDiv.innerHTML = cardHTML;
-               const cardElement = tempDiv.firstElementChild;
-                  
+               // FLICKER PROTECTION: Check if we have a cached card for this visitor
+               const sessionId = visitor.session_id || visitor.sessionId;
+               let cardElement = null;
+               
+               if (sessionId && existingCardsCache.has(sessionId)) {
+                    // REUSE existing card element instead of recreating
+                    cardElement = existingCardsCache.get(sessionId);
+                    existingCardsCache.delete(sessionId);
+                    console.log(`🛡️ FLICKER PROTECTION: Reused existing card for ${sessionId}`);
+               } else {
+                    // Create new card element
+                    const cardHTML = createVisitorCard(visitor);
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = cardHTML;
+                    cardElement = tempDiv.firstElementChild;
+               }
+               
                if (cardElement) {
-                    // Add animation
-                    cardElement.style.opacity = '0';
-                    cardElement.style.transform = 'translateY(20px)';
+                    // Add animation only to NEW cards (not reused)
+                    if (!sessionId || !existingCardsCache.has(sessionId) === false) {
+                         cardElement.style.opacity = '0';
+                         cardElement.style.transform = 'translateY(20px)';
+                    }
                     fragment.appendChild(cardElement);
-                       
+                    
                     // Trigger animation after append
                     requestAnimationFrame(() => {
                          setTimeout(() => {
@@ -827,13 +863,17 @@ function renderAllVisitorsToGrid() {
                console.error('❌ Error creating card:', e);
           }
      });
-        
+     
      // Append all cards at once
      grid.appendChild(fragment);
-        
+     
      // Update counts
      updateOnlineCounts();
-        
+     
+     // FLICKER PROTECTION: Mark as having rendered data
+     hasRenderedVisitors = true;
+     existingCardsCache.clear(); // Clear cache after successful render
+     
      console.log(`✅ Rendered ${allAdminVisitors.length} visitor cards`);
 }
 
