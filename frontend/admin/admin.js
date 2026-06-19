@@ -1078,7 +1078,7 @@ function setupSocketListeners() {
     console.log('📦 Cached', allAdminVisitors.length, 'visitors');
     
     // Render using filtered view (compact cards)
-    applyFilterAndRender();
+    renderAllVisitorsToGrid();
     
     // Update stats if provided
     if (data.stats) {
