@@ -19,6 +19,24 @@ let loadingStartTime = null;
 let loadingTimeoutId = null;
 const LOADING_TIMEOUT_MS = 5000; // 5 seconds
 
+// ==========================================
+// PAGE NAVIGATION
+// ==========================================
+
+function showLoginPage() {
+  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+}
+
+function showDashboard() {
+  document.getElementById('loginPage').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+}
+
+// ==========================================
+// LOADING STATES
+// ==========================================
+
 // Show loading state
 function showLoadingState() {
   const grid = document.getElementById('visitorsGrid');
@@ -1469,6 +1487,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Export functions to global scope
+window.showLoginPage = showLoginPage;
+window.showDashboard = showDashboard;
 window.initAdminSocket = initAdminSocket;
 window.reconnectSocket = reconnectSocket;
 window.setupSocketListeners = setupSocketListeners;
