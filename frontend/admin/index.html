@@ -7,11 +7,58 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>لوحة التحكم - مياه واحة قطر</title>
-  <link rel="stylesheet" href="admin.css?v=20260617-1">
+  <link rel="stylesheet" href="admin.css?v=20260617-2">
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
-
-  <!-- Confirmation Modal -->
+  
+  <!-- Inline login handler to ensure it works -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const loginForm = document.getElementById('loginForm');
+      if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const username = document.getElementById('username').value.trim();
+          const password = document.getElementById('password').value;
+          const btn = loginForm.querySelector('button[type="submit"]');
+          
+          if (!username || !password) {
+            alert('يرجى إدخال البيانات');
+            return;
+          }
+          
+          btn.disabled = true;
+          btn.textContent = 'جاري التحميل...';
+          
+          try {
+            const SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+              ? 'http://localhost:3000'
+              : window.location.origin;
+            
+            const res = await fetch(SERVER_URL + '/api/admin/login', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({username, password})
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+              document.getElementById('loginPage').style.display = 'none';
+              document.getElementById('dashboard').style.display = 'block';
+              localStorage.setItem('admin_token', 'logged_in');
+              localStorage.setItem('admin_login_time', new Date().toISOString());
+            } else {
+              alert(data.message || 'فشل تسجيل الدخول');
+            }
+          } catch(err) {
+            alert('خطأ: ' + err.message);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = 'تسجيل الدخول';
+          }
+        });
+      }
+    });
+  </script>
 </head>
 <body>
   <!-- Login Page -->
@@ -369,7 +416,7 @@
     </button>
   </div>
 
-  <script src="admin.js?v=20260617-1"></script>
+  <script src="admin.js?v=20260617-2"></script>
 
   <!-- Confirmation Modal -->
   <script>
