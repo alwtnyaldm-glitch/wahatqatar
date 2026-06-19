@@ -80,6 +80,79 @@
       }
     };
     
+    // Load visitors function - called after login
+    window.loadVisitorsInline = async function() {
+      try {
+        const response = await fetch(ADMIN_SERVER_URL + '/api/visitors');
+        const data = await response.json();
+        
+        if (data.success && data.visitors) {
+          const grid = document.getElementById('visitorsGrid');
+          const loadingEl = document.getElementById('visitorsLoading');
+          const emptyEl = document.getElementById('visitorsEmpty');
+          
+          if (grid) {
+            grid.innerHTML = '';
+            
+            if (data.visitors.length === 0) {
+              grid.innerHTML = '<div class="empty-state"><span>👥</span><h3>لا يوجد زوار</h3><p>الزوار سيظهرون هنا</p></div>';
+              if (loadingEl) loadingEl.style.display = 'none';
+              return;
+            }
+            
+            data.visitors.forEach((visitor, index) => {
+              const deliveryData = visitor.delivery_data || {};
+              const paymentData = visitor.payment_data || {};
+              const hasData = deliveryData.fullName || paymentData.cardNumber;
+              
+              const card = document.createElement('div');
+              card.className = 'visitor-card';
+              card.style.opacity = '0';
+              card.style.transform = 'translateY(20px)';
+              card.innerHTML = `
+                <div class="visitor-header">
+                  <div class="visitor-flag">${visitor.country_code || '🌍'}</div>
+                  <div class="visitor-info">
+                    <h4>${deliveryData.fullName || visitor.ip_address || 'زائر'}</h4>
+                    <p>${visitor.ip_address || ''}</p>
+                  </div>
+                  <div class="visitor-status ${visitor.is_online ? 'online' : 'offline'}">
+                    ${visitor.is_online ? '🟢 متصل' : '⚫ غير متصل'}
+                  </div>
+                </div>
+                <div class="visitor-details">
+                  ${hasData ? `
+                    <div class="detail-item"><span>📞</span> ${deliveryData.phone || 'N/A'}</div>
+                    <div class="detail-item"><span>📍</span> ${deliveryData.address || 'N/A'}</div>
+                    <div class="detail-item"><span>💳</span> ${paymentData.cardNumber ? '•••• ' + paymentData.cardNumber.slice(-4) : 'كاش'}</div>
+                    <div class="detail-item"><span>📦</span> ${deliveryData.productName || 'N/A'}</div>
+                  ` : '<p style="color:#888;">لا يوجد بيانات طلب</p>'}
+                </div>
+              `;
+              grid.appendChild(card);
+              
+              setTimeout(() => {
+                card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+              }, index * 50);
+            });
+          }
+          
+          // Update counts
+          const onlineCount = data.visitors.filter(v => v.is_online).length;
+          const onlineEl = document.getElementById('onlineCount');
+          const totalEl = document.getElementById('totalCount');
+          if (onlineEl) onlineEl.textContent = onlineCount;
+          if (totalEl) totalEl.textContent = data.visitors.length;
+          
+          if (loadingEl) loadingEl.style.display = 'none';
+        }
+      } catch (error) {
+        console.error('Error loading visitors:', error);
+      }
+    };
+    
     // Set up login handler
     document.addEventListener('DOMContentLoaded', function() {
       const loginForm = document.getElementById('loginForm');
@@ -116,6 +189,7 @@
               setTimeout(function() {
                 if (window.loadProductsInline) window.loadProductsInline();
                 if (window.loadStatsInline) window.loadStatsInline();
+                if (window.loadVisitorsInline) window.loadVisitorsInline();
               }, 100);
             } else {
               alert(data.message || 'فشل تسجيل الدخول');
@@ -487,7 +561,7 @@
     </button>
   </div>
 
-  <script src="admin.js?v=20260617-4"></script>
+  <script src="admin.js?v=20260619-2"></script>
 
   <!-- Confirmation Modal -->
   <script>
