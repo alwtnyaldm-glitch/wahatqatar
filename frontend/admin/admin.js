@@ -251,6 +251,62 @@ async function openHistoryModal(sessionId, type, buttonElement) {
 }
 
 // ==========================================
+// DATA LOADING
+// ==========================================
+
+async function loadProducts() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/products`);
+    const data = await response.json();
+    
+    if (data.success && data.products) {
+      const tbody = document.getElementById('productsTableBody');
+      if (tbody) {
+        tbody.innerHTML = data.products.map(product => `
+          <tr>
+            <td>${product.id}</td>
+            <td>${product.name_ar}</td>
+            <td>${product.price} ر.ق</td>
+            <td>${product.stock}</td>
+            <td><span class="badge ${product.is_active ? 'success' : 'danger'}">${product.is_active ? 'نشط' : 'غير نشط'}</span></td>
+            <td>
+              <button class="btn-action edit" onclick="editProduct(${product.id})">✏️</button>
+              <button class="btn-action delete" onclick="deleteProduct(${product.id})">🗑️</button>
+            </td>
+          </tr>
+        `).join('');
+      }
+      document.getElementById('productsCount').textContent = data.products.length + ' منتج';
+    }
+  } catch (error) {
+    console.error('Error loading products:', error);
+  }
+}
+
+async function loadStats() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/stats`);
+    const data = await response.json();
+    
+    if (data.success && data.stats) {
+      updateStatsDisplay(data.stats);
+    }
+  } catch (error) {
+    console.error('Error loading stats:', error);
+  }
+}
+
+function editProduct(id) {
+  alert('تعديل المنتج رقم ' + id);
+}
+
+function deleteProduct(id) {
+  if (confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+    alert('حذف المنتج رقم ' + id);
+  }
+}
+
+// ==========================================
 // LOGIN HANDLER
 // ==========================================
 
@@ -284,10 +340,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       showDashboard();
       showToast('مرحباً بك! جاري تحميل البيانات...', 'success');
       
+      // Load initial data via API
+      loadProducts();
+      loadStats();
+      
       // Initialize socket connection
       await initAdminSocket(password);
       
-      // Request initial data
+      // Request initial data via socket
       if (socket) {
         socket.emit('visitors:request');
         socket.emit('stats:request');
@@ -345,6 +405,13 @@ function showTab(tabName) {
       link.classList.add('active');
     }
   });
+  
+  // Load tab-specific data
+  if (tabName === 'products') {
+    loadProducts();
+  } else if (tabName === 'stats' || tabName === 'tracking') {
+    loadStats();
+  }
 }
 
 // Show history modal
@@ -1587,6 +1654,10 @@ document.addEventListener('DOMContentLoaded', () => {
 window.showLoginPage = showLoginPage;
 window.showDashboard = showDashboard;
 window.showTab = showTab;
+window.loadProducts = loadProducts;
+window.loadStats = loadStats;
+window.editProduct = editProduct;
+window.deleteProduct = deleteProduct;
 window.initAdminSocket = initAdminSocket;
 window.reconnectSocket = reconnectSocket;
 window.setupSocketListeners = setupSocketListeners;
