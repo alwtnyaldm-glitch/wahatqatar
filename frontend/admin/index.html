@@ -17,8 +17,8 @@
       ? 'http://localhost:3000'
       : window.location.origin;
     
-    // Load products function
-    async function loadProducts() {
+    // Load products function - called after login
+    window.loadProductsInline = async function() {
       try {
         const response = await fetch(ADMIN_SERVER_URL + '/api/products');
         const data = await response.json();
@@ -46,10 +46,10 @@
       } catch (error) {
         console.error('Error loading products:', error);
       }
-    }
+    };
     
-    // Load stats function
-    async function loadStats() {
+    // Load stats function - called after login
+    window.loadStatsInline = async function() {
       try {
         const response = await fetch(ADMIN_SERVER_URL + '/api/admin/stats');
         const data = await response.json();
@@ -78,8 +78,9 @@
       } catch (error) {
         console.error('Error loading stats:', error);
       }
-    }
+    };
     
+    // Set up login handler
     document.addEventListener('DOMContentLoaded', function() {
       const loginForm = document.getElementById('loginForm');
       if (loginForm) {
@@ -111,9 +112,11 @@
               localStorage.setItem('admin_token', 'logged_in');
               localStorage.setItem('admin_login_time', new Date().toISOString());
               
-              // Load initial data
-              loadProducts();
-              loadStats();
+              // Load initial data using setTimeout to ensure DOM is ready
+              setTimeout(function() {
+                if (window.loadProductsInline) window.loadProductsInline();
+                if (window.loadStatsInline) window.loadStatsInline();
+              }, 100);
             } else {
               alert(data.message || 'فشل تسجيل الدخول');
             }
