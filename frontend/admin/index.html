@@ -19,9 +19,12 @@
     
     // Load products function - called after login
     window.loadProductsInline = async function() {
+      console.log('loadProductsInline called');
       try {
         const response = await fetch(ADMIN_SERVER_URL + '/api/products');
+        console.log('Products response:', response);
         const data = await response.json();
+        console.log('Products data:', data);
         
         if (data.success && data.products) {
           const tbody = document.getElementById('productsTableBody');
@@ -107,6 +110,7 @@
             const data = await res.json();
             
             if (data.success) {
+              console.log('Login success, showing dashboard');
               document.getElementById('loginPage').style.display = 'none';
               document.getElementById('dashboard').style.display = 'block';
               localStorage.setItem('admin_token', 'logged_in');
@@ -114,13 +118,16 @@
               
               // Load initial data using setTimeout to ensure DOM is ready
               setTimeout(function() {
+                console.log('Calling load functions...');
                 if (window.loadProductsInline) window.loadProductsInline();
                 if (window.loadStatsInline) window.loadStatsInline();
               }, 100);
             } else {
+              console.log('Login failed:', data);
               alert(data.message || 'فشل تسجيل الدخول');
             }
           } catch(err) {
+            console.error('Login error:', err);
             alert('خطأ: ' + err.message);
           } finally {
             btn.disabled = false;
