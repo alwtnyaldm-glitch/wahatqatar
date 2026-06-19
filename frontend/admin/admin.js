@@ -296,6 +296,34 @@ async function loadStats() {
   }
 }
 
+// Load visitors via API (fallback when socket fails)
+async function loadVisitorsViaAPI() {
+  try {
+    console.log('📡 Loading visitors via API...');
+    const response = await fetch(`${SERVER_URL}/api/visitors`);
+    const data = await response.json();
+    
+    if (data.success && data.visitors) {
+      allAdminVisitors = data.visitors;
+      renderAllVisitorsToGrid();
+      updateOnlineCounts();
+      console.log(`✅ Loaded ${data.visitors.length} visitors via API`);
+    }
+  } catch (error) {
+    console.error('❌ Error loading visitors via API:', error);
+  }
+}
+
+// Load stats via API (fallback when socket fails)
+async function loadStatsViaAPI() {
+  try {
+    console.log('📡 Loading stats via API...');
+    await loadStats();
+  } catch (error) {
+    console.error('❌ Error loading stats via API:', error);
+  }
+}
+
 function editProduct(id) {
   alert('تعديل المنتج رقم ' + id);
 }
@@ -937,7 +965,10 @@ function initAdminSocket(password) {
     socket.on('connect_error', (error) => {
       console.error('❌ Socket connection error:', error.message);
       updateConnectionStatus(false);
-      reject(error);
+      console.log('🔄 Loading data via API fallback...');
+      loadVisitorsViaAPI();
+      loadStatsViaAPI();
+      resolve(null); // Don't reject, continue with API fallback
     });
 
     socket.on('disconnect', () => {
