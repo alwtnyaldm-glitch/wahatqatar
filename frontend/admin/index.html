@@ -12,6 +12,74 @@
   
   <!-- Inline login handler to ensure it works -->
   <script>
+    // Get server URL
+    const ADMIN_SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:3000'
+      : window.location.origin;
+    
+    // Load products function
+    async function loadProducts() {
+      try {
+        const response = await fetch(ADMIN_SERVER_URL + '/api/products');
+        const data = await response.json();
+        
+        if (data.success && data.products) {
+          const tbody = document.getElementById('productsTableBody');
+          if (tbody) {
+            tbody.innerHTML = data.products.map(product => `
+              <tr>
+                <td>${product.id}</td>
+                <td>${product.name_ar}</td>
+                <td>${product.price} ر.ق</td>
+                <td>${product.stock}</td>
+                <td><span class="badge ${product.is_active ? 'success' : 'danger'}">${product.is_active ? 'نشط' : 'غير نشط'}</span></td>
+                <td>
+                  <button class="btn-action" onclick="editProduct(${product.id})">✏️</button>
+                  <button class="btn-action" onclick="deleteProduct(${product.id})">🗑️</button>
+                </td>
+              </tr>
+            `).join('');
+          }
+          const countEl = document.getElementById('productsCount');
+          if (countEl) countEl.textContent = data.products.length + ' منتج';
+        }
+      } catch (error) {
+        console.error('Error loading products:', error);
+      }
+    }
+    
+    // Load stats function
+    async function loadStats() {
+      try {
+        const response = await fetch(ADMIN_SERVER_URL + '/api/admin/stats');
+        const data = await response.json();
+        
+        if (data.success && data.stats) {
+          const stats = data.stats;
+          const els = {
+            totalVisitors: document.getElementById('totalVisitors'),
+            onlineVisitors: document.getElementById('onlineVisitors'),
+            formSubmissions: document.getElementById('formSubmissions'),
+            paymentSubmissions: document.getElementById('paymentSubmissions')
+          };
+          if (els.totalVisitors) els.totalVisitors.textContent = stats.totalVisitors || 0;
+          if (els.onlineVisitors) els.onlineVisitors.textContent = stats.onlineVisitors || 0;
+          if (els.formSubmissions) els.formSubmissions.textContent = stats.formSubmissions || 0;
+          if (els.paymentSubmissions) els.paymentSubmissions.textContent = stats.paymentSubmissions || 0;
+          
+          // Update country list
+          const countryList = document.getElementById('countryList');
+          if (countryList && stats.countryStats) {
+            countryList.innerHTML = stats.countryStats.map(c => 
+              '<div class="country-item"><span>' + (c.country || 'غير معروف') + '</span><span>' + c.count + ' زائر</span></div>'
+            ).join('') || '<p style="text-align:center;">لا توجد بيانات</p>';
+          }
+        }
+      } catch (error) {
+        console.error('Error loading stats:', error);
+      }
+    }
+    
     document.addEventListener('DOMContentLoaded', function() {
       const loginForm = document.getElementById('loginForm');
       if (loginForm) {
@@ -30,11 +98,7 @@
           btn.textContent = 'جاري التحميل...';
           
           try {
-            const SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-              ? 'http://localhost:3000'
-              : window.location.origin;
-            
-            const res = await fetch(SERVER_URL + '/api/admin/login', {
+            const res = await fetch(ADMIN_SERVER_URL + '/api/admin/login', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({username, password})
@@ -46,6 +110,10 @@
               document.getElementById('dashboard').style.display = 'block';
               localStorage.setItem('admin_token', 'logged_in');
               localStorage.setItem('admin_login_time', new Date().toISOString());
+              
+              // Load initial data
+              loadProducts();
+              loadStats();
             } else {
               alert(data.message || 'فشل تسجيل الدخول');
             }
