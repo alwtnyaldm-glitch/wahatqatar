@@ -247,18 +247,14 @@
     
     // Set up login handler
     document.addEventListener('DOMContentLoaded', function() {
-      // Check if already logged in - auto-load data
+      // Check if already logged in - load only stats (default tab)
       const adminToken = localStorage.getItem('admin_token');
       
       if (adminToken) {
-        // Already logged in, load data after short delay
         console.log('🔄 Auto-loading admin data...');
+        // Load stats only (default tab)
         setTimeout(function() {
-          if (window.loadProductsInline) window.loadProductsInline();
           if (window.loadStatsInline) window.loadStatsInline();
-          if (window.loadVisitorsInline) window.loadVisitorsInline();
-          if (window.loadOrdersInline) window.loadOrdersInline();
-          if (window.loadPaymentsInline) window.loadPaymentsInline();
         }, 200);
       }
       
@@ -291,13 +287,11 @@
               document.getElementById('dashboard').style.display = 'block';
               localStorage.setItem('admin_token', 'logged_in');
               localStorage.setItem('admin_login_time', new Date().toISOString());
-              console.log('Login success, calling loadVisitorsInline...');
+              console.log('Login success! Load data by clicking tabs.');
               
-              // Load initial data using setTimeout to ensure DOM is ready
+              // Load only stats initially (default tab)
               setTimeout(function() {
-                if (window.loadProductsInline) window.loadProductsInline();
                 if (window.loadStatsInline) window.loadStatsInline();
-                if (window.loadVisitorsInline) window.loadVisitorsInline();
               }, 100);
             } else {
               alert(data.message || 'فشل تسجيل الدخول');
@@ -735,7 +729,7 @@
     </button>
   </div>
 
-  <script src="admin.js?v=20260619-5"></script>
+  <script src="admin.js?v=20260619-6"></script>
 
   <!-- Confirmation Modal -->
   <script>

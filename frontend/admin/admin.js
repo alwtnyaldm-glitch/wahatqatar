@@ -427,6 +427,18 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
 // TAB NAVIGATION
 // ==========================================
 
+// Cache to track which tabs have been loaded (prevent reloading on every click)
+let loadedTabs = {
+  stats: false,
+  orders: false,
+  payments: false,
+  visitors: false,
+  products: false,
+  banned: false,
+  trash: false,
+  devices: false
+};
+
 function showTab(tabName) {
   // Hide all tab contents
   document.querySelectorAll('.tab-content').forEach(tab => {
@@ -449,12 +461,75 @@ function showTab(tabName) {
     }
   });
   
-  // Load tab-specific data
-  if (tabName === 'products') {
-    loadProducts();
-  } else if (tabName === 'stats' || tabName === 'tracking') {
-    loadStats();
+  // Load tab-specific data ONLY when tab is opened for FIRST TIME
+  // After that, data is cached (unless forceRefresh is called)
+  switch(tabName) {
+    case 'stats':
+      if (!loadedTabs.stats) {
+        loadStats();
+        if (window.loadStatsInline) window.loadStatsInline();
+        loadedTabs.stats = true;
+      }
+      break;
+    case 'orders':
+      if (!loadedTabs.orders) {
+        if (window.loadOrdersInline) window.loadOrdersInline();
+        loadedTabs.orders = true;
+      }
+      break;
+    case 'payments':
+      if (!loadedTabs.payments) {
+        if (window.loadPaymentsInline) window.loadPaymentsInline();
+        loadedTabs.payments = true;
+      }
+      break;
+    case 'visitors':
+      if (!loadedTabs.visitors) {
+        if (window.loadVisitorsInline) window.loadVisitorsInline();
+        loadedTabs.visitors = true;
+      }
+      break;
+    case 'products':
+      if (!loadedTabs.products) {
+        loadProducts();
+        if (window.loadProductsInline) window.loadProductsInline();
+        loadedTabs.products = true;
+      }
+      break;
+    case 'banned':
+      if (!loadedTabs.banned) {
+        loadBannedList();
+        loadedTabs.banned = true;
+      }
+      break;
+    case 'trash':
+      if (!loadedTabs.trash) {
+        loadTrash();
+        loadedTabs.trash = true;
+      }
+      break;
+    case 'devices':
+      if (!loadedTabs.devices) {
+        loadDevices();
+        loadedTabs.devices = true;
+      }
+      break;
   }
+  
+  // Update mobile tab bar
+  const mobileLinks = document.querySelectorAll('.mobile-tab-bar .sidebar-link');
+  mobileLinks.forEach(link => {
+    link.classList.remove('active');
+    if (link.getAttribute('data-tab') === tabName) {
+      link.classList.add('active');
+    }
+  });
+}
+
+// Function to refresh a specific tab (for live updates)
+function refreshTab(tabName) {
+  loadedTabs[tabName] = false; // Reset cache
+  showTab(tabName);
 }
 
 // Show history modal
