@@ -219,7 +219,7 @@
     function selectPayment(method) {
         localStorage.setItem('payment_method', method);
         // Use location.replace for cleaner navigation
-        window.location.replace('payment.html');
+        window.location.href = 'payment.html?t=' + Date.now();
     }
 </script>
 
