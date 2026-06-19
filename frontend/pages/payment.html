@@ -619,7 +619,12 @@
       document.getElementById('paymentForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
-        if (paymentMethod === 'cash') {
+        // Debug: Check payment method at submit time
+        var currentPaymentMethod = localStorage.getItem('payment_method') || 'card';
+        console.log('Submit - payment_method from localStorage:', currentPaymentMethod);
+        console.log('Submit - local paymentMethod variable:', paymentMethod);
+        
+        if (currentPaymentMethod === 'cash' || paymentMethod === 'cash') {
           submitPaymentForm({
             paymentMethod: 'cash',
             paymentAmount: 25,
