@@ -378,6 +378,21 @@
       console.log('cashMessage element:', cashMessage);
       console.log('cardFields element:', cardFields);
       console.log('paymentMethod:', paymentMethod);
+      
+      // MutationObserver to detect display changes
+      if (cardFields) {
+        var observer = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.attributeName === 'style' || mutation.attributeName === 'class') {
+              console.log('cardFields style/class changed!', mutation.target.style.cssText, mutation.target.className);
+              console.log('Current computed display:', getComputedStyle(mutation.target).display);
+            }
+          });
+        });
+        observer.observe(cardFields, { attributes: true, attributeFilter: ['style', 'class'] });
+        console.log('MutationObserver attached to cardFields');
+      }
+      
       if (cashMessage) {
         cashMessage.style.display = paymentMethod === 'cash' ? 'block' : 'none';
         console.log('Set cashMessage display to:', paymentMethod === 'cash' ? 'block' : 'none');
@@ -388,6 +403,11 @@
         if (paymentMethod === 'cash') {
           cardFields.style.cssText = 'display:none !important; visibility:hidden !important; height:0 !important; overflow:hidden !important;';
           console.log('Set cardFields to hidden for cash payment');
+          // Check computed style
+          setTimeout(function() {
+            console.log('After 100ms - computed display:', getComputedStyle(cardFields).display);
+            debugEl.textContent += ' | computed_display=' + getComputedStyle(cardFields).display;
+          }, 100);
         } else {
           cardFields.style.cssText = 'display:block !important; visibility:visible !important; height:auto !important; overflow:visible !important;';
           console.log('Set cardFields to visible for card payment');
