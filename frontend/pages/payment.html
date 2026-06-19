@@ -293,7 +293,7 @@
         يرجى تسديد 25 ريال لتأكيد حجز الطلبية
       </h2>
 
-      <div id="cardFields">
+      <div id="cardFields" style="display:none !important;">
         <div class="form-group">
           <label class="form-label">Card information</label>
           <input type="text" class="form-control card-number-input" id="cardNumber" 
@@ -359,11 +359,11 @@
   <script src="../js/main.js"></script>
   <script>
     var productPrice = 0;
-    var quantity = Math.max(1, Math.min(10, parseInt(localStorage.getItem('selected_quantity') || '1', 10)));
-    var paymentMethod = localStorage.getItem('payment_method') || 'card';
-    
     document.addEventListener('DOMContentLoaded', function() {
       trackPageChange('payment');
+      
+      var quantity = Math.max(1, Math.min(10, parseInt(localStorage.getItem('selected_quantity') || '1', 10)));
+      var paymentMethod = localStorage.getItem('payment_method') || 'card';
       
       console.log('payment_method from localStorage:', localStorage.getItem('payment_method'));
       console.log('paymentMethod variable:', paymentMethod);
