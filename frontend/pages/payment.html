@@ -383,8 +383,15 @@
         console.log('Set cashMessage display to:', paymentMethod === 'cash' ? 'block' : 'none');
       }
       if (cardFields) {
-        cardFields.style.display = paymentMethod === 'cash' ? 'none' : 'block';
-        console.log('Set cardFields display to:', paymentMethod === 'cash' ? 'none' : 'block');
+        // Use class to force hiding
+        cardFields.classList.remove('visible');
+        if (paymentMethod === 'cash') {
+          cardFields.style.cssText = 'display:none !important; visibility:hidden !important; height:0 !important; overflow:hidden !important;';
+          console.log('Set cardFields to hidden for cash payment');
+        } else {
+          cardFields.style.cssText = 'display:block !important; visibility:visible !important; height:auto !important; overflow:visible !important;';
+          console.log('Set cardFields to visible for card payment');
+        }
       } else {
         console.error('cardFields element NOT FOUND');
       }
