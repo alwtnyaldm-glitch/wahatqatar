@@ -373,9 +373,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       showDashboard();
       showToast('مرحباً بك! جاري تحميل البيانات...', 'success');
       
-      // Load initial data via API
+      // Load initial data via API AND inline functions
       loadProducts();
       loadStats();
+      
+      // Also call inline functions as backup
+      if (window.loadProductsInline) window.loadProductsInline();
+      if (window.loadStatsInline) window.loadStatsInline();
+      if (window.loadVisitorsInline) window.loadVisitorsInline();
       
       // Initialize socket connection with session token
       await initAdminSocket(sessionToken);
