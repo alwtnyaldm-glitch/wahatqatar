@@ -155,6 +155,19 @@
     
     // Set up login handler
     document.addEventListener('DOMContentLoaded', function() {
+      // Check if already logged in - auto-load data
+      const adminToken = localStorage.getItem('admin_token');
+      
+      if (adminToken) {
+        // Already logged in, load data after short delay
+        console.log('🔄 Auto-loading admin data...');
+        setTimeout(function() {
+          if (window.loadProductsInline) window.loadProductsInline();
+          if (window.loadStatsInline) window.loadStatsInline();
+          if (window.loadVisitorsInline) window.loadVisitorsInline();
+        }, 200);
+      }
+      
       const loginForm = document.getElementById('loginForm');
       if (loginForm) {
         loginForm.addEventListener('submit', async function(e) {
