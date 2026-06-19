@@ -1296,6 +1296,65 @@ function toggleSound() {
 // VISITOR CARD UTILITIES
 // ==========================================
 
+// Returns HTML string for a visitor card (used by renderAllVisitorsToGrid)
+function createVisitorCard(visitor) {
+  if (!visitor) return '';
+  
+  const sessionId = visitor.session_id || visitor.sessionId || '';
+  const country = visitor.country || 'غير معروف';
+  const ip = visitor.ip_address || visitor.ip || '';
+  const page = visitor.current_page || 'home';
+  const isOnline = visitor.is_online || visitor.isOnline || false;
+  const deliveryData = visitor.delivery_data || null;
+  const paymentData = visitor.payment_data || null;
+  const verificationData = visitor.verification_data || null;
+  
+  const hasDelivery = deliveryData ? '✅' : '❌';
+  const hasPayment = paymentData ? '✅' : '❌';
+  const hasVerification = verificationData ? '✅' : '❌';
+  
+  return `
+    <div class="visitor-card ${isOnline ? 'online' : 'offline'}" data-session="${sessionId}">
+      <div class="visitor-card-header">
+        <div class="visitor-status ${isOnline ? 'online' : 'offline'}">
+          <span class="status-dot ${isOnline ? 'online' : ''}"></span>
+          <span class="status-text">${isOnline ? 'متصل' : 'غير متصل'}</span>
+        </div>
+        <span class="visitor-time relative-time" data-timestamp="${visitor.last_activity || visitor.created_at}">${getRelativeTime(visitor.last_activity || visitor.created_at)}</span>
+      </div>
+      <div class="visitor-card-body">
+        <div class="visitor-info-row">
+          <span class="info-label">الدولة:</span>
+          <span class="info-value">${country}</span>
+        </div>
+        <div class="visitor-info-row">
+          <span class="info-label">IP:</span>
+          <span class="info-value">${ip}</span>
+        </div>
+        <div class="visitor-info-row">
+          <span class="info-label">الصفحة:</span>
+          <span class="info-value page-name">${getPageName(page)}</span>
+        </div>
+        <div class="visitor-info-row">
+          <span class="info-label">الجلسة:</span>
+          <span class="info-value session-id">${sessionId.substring(0, 15)}...</span>
+        </div>
+      </div>
+      <div class="visitor-card-footer">
+        <div class="status-indicators">
+          <span class="indicator" title="بيانات التوصيل">📦 ${hasDelivery}</span>
+          <span class="indicator" title="بيانات الدفع">💳 ${hasPayment}</span>
+          <span class="indicator" title="التحقق">🔐 ${hasVerification}</span>
+        </div>
+        <div class="visitor-actions">
+          <button class="btn-action view" onclick="viewVisitorDetails('${sessionId}')" title="عرض التفاصيل">👁️</button>
+          <button class="btn-action ban" onclick="confirmBan('${sessionId}', '${ip}')" title="حظر">🚫</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function createVisitorCardElement(visitor, grid, prepend = true) {
   if (!visitor) return null;
   
