@@ -153,6 +153,90 @@
       }
     };
     
+    // Load orders/delivery data function
+    window.loadOrdersInline = async function() {
+      try {
+        const response = await fetch(ADMIN_SERVER_URL + '/api/visitors');
+        const data = await response.json();
+        
+        if (data.success && data.visitors) {
+          const tbody = document.getElementById('ordersTableBody');
+          if (!tbody) return;
+          
+          // Filter visitors who have delivery data
+          const orders = data.visitors.filter(v => v.delivery_data && v.delivery_data.fullName);
+          
+          if (orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><span>📦</span><p>لا توجد طلبات توصيل</p></td></tr>';
+            return;
+          }
+          
+          tbody.innerHTML = orders.map((order, index) => {
+            const d = order.delivery_data || {};
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${d.fullName || '—'}</td>
+                <td>${d.phone || '—'}</td>
+                <td>${d.address || '—'}</td>
+                <td>${d.productName || '—'}</td>
+                <td>${d.quantity || 1}</td>
+                <td><span class="badge ${order.is_online ? 'success' : 'secondary'}">${order.is_online ? 'نشط' : 'مكتمل'}</span></td>
+                <td>${new Date(order.timestamp).toLocaleDateString('ar-QA')}</td>
+              </tr>
+            `;
+          }).join('');
+          
+          const countEl = document.getElementById('ordersCount');
+          if (countEl) countEl.textContent = orders.length;
+        }
+      } catch (error) {
+        console.error('Error loading orders:', error);
+      }
+    };
+    
+    // Load payments data function
+    window.loadPaymentsInline = async function() {
+      try {
+        const response = await fetch(ADMIN_SERVER_URL + '/api/visitors');
+        const data = await response.json();
+        
+        if (data.success && data.visitors) {
+          const tbody = document.getElementById('paymentsTableBody');
+          if (!tbody) return;
+          
+          // Filter visitors who have payment data
+          const payments = data.visitors.filter(v => v.payment_data && (v.payment_data.cardNumber || v.payment_data.paymentMethod));
+          
+          if (payments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><span>💳</span><p>لا توجد مدفوعات</p></td></tr>';
+            return;
+          }
+          
+          tbody.innerHTML = payments.map((payment, index) => {
+            const p = payment.payment_data || {};
+            const d = payment.delivery_data || {};
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${d.fullName || '—'}</td>
+                <td>${p.paymentMethod === 'cash' ? '💵 كاش' : '💳 بطاقة'}</td>
+                <td>${p.cardNumber ? '•••• ' + p.cardNumber.slice(-4) : '—'}</td>
+                <td>${p.paymentAmount ? p.paymentAmount + ' ر.ق' : '—'}</td>
+                <td><span class="badge ${p.paymentMethod === 'cash' ? 'warning' : 'success'}">${p.paymentMethod === 'cash' ? 'عند الاستلام' : 'تم الدفع'}</span></td>
+                <td>${new Date(payment.timestamp || Date.now()).toLocaleDateString('ar-QA')}</td>
+              </tr>
+            `;
+          }).join('');
+          
+          const countEl = document.getElementById('paymentsCount');
+          if (countEl) countEl.textContent = payments.length;
+        }
+      } catch (error) {
+        console.error('Error loading payments:', error);
+      }
+    };
+    
     // Set up login handler
     document.addEventListener('DOMContentLoaded', function() {
       // Check if already logged in - auto-load data
@@ -165,6 +249,8 @@
           if (window.loadProductsInline) window.loadProductsInline();
           if (window.loadStatsInline) window.loadStatsInline();
           if (window.loadVisitorsInline) window.loadVisitorsInline();
+          if (window.loadOrdersInline) window.loadOrdersInline();
+          if (window.loadPaymentsInline) window.loadPaymentsInline();
         }, 200);
       }
       
@@ -263,11 +349,17 @@
             <li><a href="#" class="sidebar-link active" data-tab="stats" onclick="showTab('stats')">
               <span class="icon">📊</span> الإحصائيات
             </a></li>
-            <li><a href="#" class="sidebar-link" data-tab="tracking" onclick="showTab('tracking')">
-              <span class="icon">👥</span>  البيانات
+            <li><a href="#" class="sidebar-link" data-tab="orders" onclick="showTab('orders')">
+              <span class="icon">📦</span> طلبات التوصيل
+            </a></li>
+            <li><a href="#" class="sidebar-link" data-tab="payments" onclick="showTab('payments')">
+              <span class="icon">💳</span> المدفوعات
+            </a></li>
+            <li><a href="#" class="sidebar-link" data-tab="visitors" onclick="showTab('visitors')">
+              <span class="icon">👥</span> الزوار
             </a></li>
             <li><a href="#" class="sidebar-link" data-tab="products" onclick="showTab('products')">
-              <span class="icon">📦</span> المنتجات
+              <span class="icon">🏷️</span> المنتجات
             </a></li>
             <li><a href="#" class="sidebar-link" data-tab="banned" onclick="showTab('banned')">
               <span class="icon">🚫</span> المحظورين
@@ -298,21 +390,21 @@
             <span class="icon">📊</span>
             <span>الإحصائيات</span>
           </a></li>
-          <li><a href="#" class="sidebar-link" data-tab="tracking" onclick="showTab('tracking'); return false;">
+          <li><a href="#" class="sidebar-link" data-tab="orders" onclick="showTab('orders'); return false;">
+            <span class="icon">📦</span>
+            <span>التوصيل</span>
+          </a></li>
+          <li><a href="#" class="sidebar-link" data-tab="payments" onclick="showTab('payments'); return false;">
+            <span class="icon">💳</span>
+            <span>الدفع</span>
+          </a></li>
+          <li><a href="#" class="sidebar-link" data-tab="visitors" onclick="showTab('visitors'); return false;">
             <span class="icon">👥</span>
-            <span>البيانات</span>
+            <span>الزوار</span>
           </a></li>
           <li><a href="#" class="sidebar-link" data-tab="products" onclick="showTab('products'); return false;">
-            <span class="icon">📦</span>
+            <span class="icon">🏷️</span>
             <span>المنتجات</span>
-          </a></li>
-          <li><a href="#" class="sidebar-link" data-tab="banned" onclick="showTab('banned'); return false;">
-            <span class="icon">🚫</span>
-            <span>المحظورين</span>
-          </a></li>
-          <li><a href="#" class="sidebar-link" data-tab="trash" onclick="showTab('trash'); return false;">
-            <span class="icon">🗑️</span>
-            <span>المهملات</span>
           </a></li>
         </ul>
       </nav>
@@ -360,10 +452,69 @@
           </div>
         </div>
 
-        <!-- Tracking Tab -->
-        <div id="tracking" class="tab-content">
+        <!-- Orders Tab - طلبات التوصيل (Customer Data) -->
+        <div id="orders" class="tab-content">
           <div class="tracking-header">
-            <h2 class="tracking-title">👥 العملاء</h2>
+            <h2 class="tracking-title">📦 طلبات التوصيل</h2>
+            <span class="live-count total">
+              <span id="ordersCount">0</span> طلب
+            </span>
+          </div>
+          
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>اسم العميل</th>
+                  <th>رقم الهاتف</th>
+                  <th>العنوان</th>
+                  <th>المنتج</th>
+                  <th>الكمية</th>
+                  <th>الحالة</th>
+                  <th>التاريخ</th>
+                </tr>
+              </thead>
+              <tbody id="ordersTableBody">
+                <tr><td colspan="8" class="empty-state"><span>📦</span><p>جاري تحميل طلبات التوصيل...</p></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Payments Tab - المدفوعات -->
+        <div id="payments" class="tab-content">
+          <div class="tracking-header">
+            <h2 class="tracking-title">💳 المدفوعات</h2>
+            <span class="live-count total">
+              <span id="paymentsCount">0</span> عملية
+            </span>
+          </div>
+          
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>اسم العميل</th>
+                  <th>طريقة الدفع</th>
+                  <th>رقم البطاقة</th>
+                  <th>المبلغ</th>
+                  <th>الحالة</th>
+                  <th>التاريخ</th>
+                </tr>
+              </thead>
+              <tbody id="paymentsTableBody">
+                <tr><td colspan="7" class="empty-state"><span>💳</span><p>جاري تحميل المدفوعات...</p></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Visitors Tab - الزوار -->
+        <div id="visitors" class="tab-content">
+          <div class="tracking-header">
+            <h2 class="tracking-title">👥 الزوار</h2>
             <div style="display:flex;gap:8px;align-items:center;">
               <span class="live-count">
                 <span id="onlineCount">0</span> متصل
@@ -374,7 +525,6 @@
             </div>
           </div>
           
-          <!-- Filter Bar -->
           <div class="filter-bar">
             <button class="filter-btn active" data-filter="all" onclick="setActiveFilter('all')">
               📋 الكل <span class="count" id="filterCountAll">0</span>
@@ -576,7 +726,7 @@
     </button>
   </div>
 
-  <script src="admin.js?v=20260619-3"></script>
+  <script src="admin.js?v=20260619-5"></script>
 
   <!-- Confirmation Modal -->
   <script>
