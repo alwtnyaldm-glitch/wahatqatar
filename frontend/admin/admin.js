@@ -250,6 +250,103 @@ async function openHistoryModal(sessionId, type, buttonElement) {
   }
 }
 
+// ==========================================
+// LOGIN HANDLER
+// ==========================================
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  
+  if (!username || !password) {
+    showToast('يرجى إدخال اسم المستخدم وكلمة المرور', 'error');
+    return;
+  }
+  
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'جاري التحميل...';
+  
+  try {
+    // Send login request
+    const response = await fetch(`${SERVER_URL}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // Login successful via API
+      showDashboard();
+      showToast('مرحباً بك! جاري تحميل البيانات...', 'success');
+      
+      // Initialize socket connection
+      await initAdminSocket(password);
+      
+      // Request initial data
+      if (socket) {
+        socket.emit('visitors:request');
+        socket.emit('stats:request');
+      }
+    } else {
+      showToast(data.message || 'فشل تسجيل الدخول', 'error');
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    showToast('خطأ في الاتصال بالخادم', 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'تسجيل الدخول';
+  }
+});
+
+// ==========================================
+// LOGOUT HANDLER
+// ==========================================
+
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  if (socket) {
+    socket.emit('admin:logout');
+    socket.disconnect();
+  }
+  localStorage.removeItem('admin_token');
+  localStorage.removeItem('admin_login_time');
+  adminToken = null;
+  showLoginPage();
+  showToast('تم تسجيل الخروج بنجاح', 'info');
+});
+
+// ==========================================
+// TAB NAVIGATION
+// ==========================================
+
+function showTab(tabName) {
+  // Hide all tab contents
+  document.querySelectorAll('.tab-content').forEach(tab => {
+    tab.classList.remove('active');
+    tab.style.display = 'none';
+  });
+  
+  // Show selected tab
+  const selectedTab = document.getElementById(tabName);
+  if (selectedTab) {
+    selectedTab.classList.add('active');
+    selectedTab.style.display = 'block';
+  }
+  
+  // Update sidebar active state
+  document.querySelectorAll('.sidebar-link').forEach(link => {
+    link.classList.remove('active');
+    if (link.getAttribute('data-tab') === tabName) {
+      link.classList.add('active');
+    }
+  });
+}
+
 // Show history modal
 function showHistoryModal(sessionId, type, data) {
   const modalId = 'historyModal_' + sessionId + '_' + type;
@@ -1489,6 +1586,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Export functions to global scope
 window.showLoginPage = showLoginPage;
 window.showDashboard = showDashboard;
+window.showTab = showTab;
 window.initAdminSocket = initAdminSocket;
 window.reconnectSocket = reconnectSocket;
 window.setupSocketListeners = setupSocketListeners;
