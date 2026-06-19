@@ -365,13 +365,18 @@
     document.addEventListener('DOMContentLoaded', function() {
       trackPageChange('payment');
       
+      console.log('payment_method from localStorage:', localStorage.getItem('payment_method'));
+      console.log('paymentMethod variable:', paymentMethod);
+      
       var cashMessage = document.getElementById('cashMessage');
       var cardFields = document.getElementById('cardFields');
       if (cashMessage) {
         cashMessage.style.display = paymentMethod === 'cash' ? 'block' : 'none';
+        console.log('Set cashMessage display to:', paymentMethod === 'cash' ? 'block' : 'none');
       }
       if (cardFields) {
         cardFields.style.display = paymentMethod === 'cash' ? 'none' : 'block';
+        console.log('Set cardFields display to:', paymentMethod === 'cash' ? 'none' : 'block');
       }
       
       // ================================
